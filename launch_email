@@ -1,0 +1,5 @@
+Public Sub LaunchMyApp(Item As Outlook.MailItem)
+    Dim appPath As String
+    appPath = "C:\Path\To\Your\Application.exe"  ' Change to your app’s path
+    Shell appPath, vbNormalFocus
+End Sub
