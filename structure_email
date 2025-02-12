@@ -1,0 +1,74 @@
+import re
+from datetime import datetime
+
+def parse_conversation(raw_text):
+    """
+    Given a raw text containing multiple messages with the format:
+    
+    Date: <date string>
+    Who said: <sender>
+    Whom said: <receiver>
+    Contents: <message content>
+    
+    This function extracts all messages, converts the date string into a datetime object,
+    sorts the messages chronologically (from past to latest), and returns a list of dictionaries.
+    """
+    # This pattern captures each message.
+    # It uses a lookahead (?=Date:|$) to stop at the next "Date:" or end-of-text.
+    pattern = (
+        r"Date:\s*(.+?)\s*\n"      # date (non-greedy, up to newline)
+        r"Who said:\s*(.+?)\s*\n"   # who said
+        r"Whom said\s*:\s*(.+?)\s*\n"  # whom said
+        r"Contents:\s*((?:(?!Date:).|\n)+)"  # contents (all text until next "Date:" appears)
+    )
+    
+    messages = []
+    for match in re.finditer(pattern, raw_text):
+        date_str, who, whom, content = match.groups()
+        # Adjust the date format as needed.
+        # Here we assume the date string is in "YYYY-MM-DD HH:MM:SS" format.
+        try:
+            date_obj = datetime.strptime(date_str.strip(), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            # Fallback if seconds are missing: "YYYY-MM-DD HH:MM"
+            date_obj = datetime.strptime(date_str.strip(), "%Y-%m-%d %H:%M")
+        
+        messages.append({
+            "date": date_obj,
+            "who": who.strip(),
+            "whom": whom.strip(),
+            "content": content.strip()
+        })
+    
+    # Sort messages from oldest to newest
+    messages.sort(key=lambda x: x["date"])
+    return messages
+
+# Example raw text (this might be what you get from your Outlook extraction)
+raw_email_text = """
+Date: 2025-02-10 10:00:00
+Who said: Alice
+Whom said : Bob
+Contents: Hi Bob, can you send me the report?
+
+Date: 2025-02-10 10:15:00
+Who said: Bob
+Whom said : Alice
+Contents: Sure, I'll send it by noon.
+
+Date: 2025-02-10 11:00:00
+Who said: Alice
+Whom said : Bob
+Contents: Great, thanks!
+"""
+
+# Parse the conversation
+conversation = parse_conversation(raw_email_text)
+
+# Print the messages in the desired format
+for msg in conversation:
+    print("Date: {}".format(msg["date"].strftime("%Y-%m-%d %H:%M:%S")))
+    print("Who said: {}".format(msg["who"]))
+    print("Whom said : {}".format(msg["whom"]))
+    print("Contents: {}".format(msg["content"]))
+    print()  # for spacing between messages
