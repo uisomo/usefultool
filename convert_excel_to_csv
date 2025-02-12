@@ -1,3 +1,6 @@
+import openpyxl
+import xlwings as xw
+
 def convert_excel_to_csv(file_path, sheet_dict):
     app = xw.App(visible=False)  # Start Excel in the background
     book = app.books.open(file_path)
@@ -22,3 +25,28 @@ sheet_dict = {
     sheet_system_name: 'list_script_system',
     sheet_review_name:'sheet_review_name'
 }
+
+
+def load_specific_data(file_path, row_index=None, start_col=None, end_col=None, encoding='utf-8'):
+    try:
+        df = pd.read_csv(file_path, encoding=encoding)
+
+        # Selecting the row and column range and converting to list
+        if row_index is not None and start_col is not None and end_col is not None:
+            selected_data = df.iloc[row_index, start_col:end_col+1].values.tolist()
+            return selected_data
+        return df
+    except UnicodeDecodeError:
+        print("Failed to decode the CSV with UTF-8 encoding. Trying with 'cp932' (Shift-JIS)...")
+        return load_specific_data(file_path, row_index, start_col, end_col, encoding='cp932')
+def delete_csv(sheet_dict):
+    """Delete a CSV file specified by the file path."""
+    try:
+        for var_name, csv_path in sheet_dict.items():
+            os.remove(csv_path)
+            print(f"File '{csv_path}' has been deleted successfully.")
+    except FileNotFoundError:
+        print(f"The file '{file_path}' does not exist.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+list_instruct = load_specific_data(results_dict['list_instruct'], rows-2, 0, col_end, encoding='cp932')
