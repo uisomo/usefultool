@@ -13,3 +13,12 @@ def convert_excel_to_csv(file_path, sheet_dict):
     book.close()
     app.quit()
     return results_dict
+results_dict=convert_excel_to_csv(file_path,sheet_dict)
+sheet_dict = {
+    sheet_script_name: 'list_instruct',
+    sheet_type_name: 'list_script_type',
+    sheet_refer_name: 'list_script_refer',
+    sheet_target_name: 'list_script_target',
+    sheet_system_name: 'list_script_system',
+    sheet_review_name:'sheet_review_name'
+}
