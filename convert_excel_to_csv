@@ -1,0 +1,15 @@
+def convert_excel_to_csv(file_path, sheet_dict):
+    app = xw.App(visible=False)  # Start Excel in the background
+    book = app.books.open(file_path)
+    results_dict={}
+    for sheet_name, csv_naming in sheet_dict.items():
+        sheet = book.sheets[sheet_name]
+        csv_path = f"{file_path.rsplit('.', 1)[0]}_{csv_naming}.csv"
+        if os.path.exists(csv_path):
+            os.remove(csv_path)
+        sheet.api.SaveAs(csv_path, FileFormat=6)  # FileFormat=6 for CSV in Excel COM
+        #print(f"Sheet '{sheet_name}' saved as '{csv_path}'")
+        results_dict[csv_naming] = csv_path  # Store CSV path in the dictionary
+    book.close()
+    app.quit()
+    return results_dict
