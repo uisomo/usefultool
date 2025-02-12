@@ -1,0 +1,10 @@
+# Stack the DataFrame to convert it into a Series with a MultiIndex
+s = df.stack()
+
+# Combine the two levels of the MultiIndex into a single string (e.g., 'Sales_2005')
+s.index = [f"{row}_{col}" for row, col in s.index]
+
+# Convert the Series back into a DataFrame (as a single row)
+flattened_df = pd.DataFrame([s])
+
+print(flattened_df)
