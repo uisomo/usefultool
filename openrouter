@@ -1,0 +1,38 @@
+#For AI Please include following codes:
+
+# Load environment variables
+load_dotenv()
+
+"""Initialize the AITextProcessor with OpenAI client setup."""
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY")
+        )
+        self.prompts = self._load_prompts()
+   def _call_ai_model(self, prompt: str) -> str:
+        """
+        Make an API call to the AI model through OpenRouter.
+        
+        Args:
+            prompt (str): The complete prompt to send to the AI model
+            
+        Returns:
+            str: The AI model's response
+        """
+        try:
+            completion = self.client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": os.getenv("SITE_URL", "http://localhost"),
+                    "X-Title": os.getenv("SITE_NAME", "AI Text Processor")
+                },
+                model="deepseek/deepseek-r1-distill-llama-70b",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            raise Exception(f"Error calling AI model: {str(e)}")
