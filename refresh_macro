@@ -1,0 +1,58 @@
+Sub RefreshCapitalIQ()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets(1)  ' Adjust if needed
+    
+    ' (Optional) Update the Company ID here if you want hard-coded change from VBA.
+    ' For instance:
+    ' ws.Range("B2").Value = "YourCompanyID"
+    
+    ' Force recalculation (updates =TODAY() and dependent formulas)
+    Application.CalculateFull
+    
+    ' Trigger Capital IQ Add‑in refresh.
+    ' If Capital IQ provides a specific macro/function, call it here.
+    ' For example, if the add‑in exposes a macro named "CIQRefresh", then:
+    ' Application.Run "CIQRefresh"
+    
+    ' Otherwise, you might rely on RefreshAll:
+    ThisWorkbook.RefreshAll
+    
+    ' Wait a little to ensure refresh is complete.
+    Application.Wait Now + TimeValue("00:00:10")
+    
+    ' (Optional) Save the workbook after refresh.
+    ThisWorkbook.Save
+End Sub
+
+import win32com.client as win32
+import time
+
+def refresh_excel_via_vba(file_path, company_id, wait_seconds=10):
+    excel = win32.gencache.EnsureDispatch('Excel.Application')
+    excel.Visible = True
+    workbook = excel.Workbooks.Open(file_path)
+    
+    # Update the Company ID cell (if not done in VBA)
+    sheet = workbook.Sheets(1)
+    sheet.Range("B2").Value = company_id
+
+    # Call the VBA macro inside the workbook.
+    excel.Application.Run("RefreshCapitalIQ")
+    
+    # Optionally, wait a bit longer if needed.
+    time.sleep(wait_seconds)
+    
+    # Extract data; for example, from a contiguous range starting at A1:
+    data_range = sheet.Range("A1").CurrentRegion
+    data = data_range.Value
+
+    workbook.Save()
+    workbook.Close(SaveChanges=True)
+    excel.Quit()
+    return data
+
+if __name__ == '__main__':
+    file_path = r"C:\Path\To\Your\File.xlsx"
+    company_id = "YourCompanyID"
+    refreshed_data = refresh_excel_via_vba(file_path, company_id)
+    print(refreshed_data)
