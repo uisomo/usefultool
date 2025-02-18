@@ -1,0 +1,119 @@
+Sub CopyFromFileBToFileA()
+    Dim masterWB As Workbook
+    Dim listWB As Workbook, listWS As Worksheet
+    Dim fileB As Workbook
+    Dim folderPath As String
+    Dim fileAPath As String
+    Dim lastRow As Long, i As Long
+    Dim fileBName As String, fileBPath As String
+    Dim destSheetName As String, destCellAddress As String
+    Dim srcRange As Range
+    Dim destSheet As Worksheet
+    
+    '===========================================================
+    ' Step 1: Open File A (the master/destination workbook)
+    '===========================================================
+    ' Update the following line with the full path to File A.
+    fileAPath = "C:\Path\To\FileA.xlsx"  ' <-- Update this full path!
+    
+    ' Try to get File A if it is already open.
+    On Error Resume Next
+    Set masterWB = Workbooks(Dir(fileAPath))
+    On Error GoTo 0
+    If masterWB Is Nothing Then
+        Set masterWB = Workbooks.Open(fileAPath)
+    End If
+    If masterWB Is Nothing Then
+        MsgBox "Could not open File A at:" & vbCrLf & fileAPath, vbCritical
+        Exit Sub
+    End If
+    
+    '===========================================================
+    ' Step 2: Open the list file that contains the File B names,
+    '         destination sheet names (in File A) and target cell.
+    '         (Assumes the list file has a header in row 1.)
+    '         Column A: File B name (including extension)
+    '         Column B: Sheet name in File A
+    '         Column C: Target cell (e.g., "B18")
+    '===========================================================
+    Dim listFilePath As Variant
+    listFilePath = Application.GetOpenFilename( _
+        FileFilter:="Excel Files (*.xlsx;*.xlsm;*.xls), *.xlsx;*.xlsm;*.xls", _
+        Title:="Select Excel File with List (File B names, sheet, target cell)")
+    If listFilePath = False Then
+        MsgBox "No list file selected.", vbExclamation
+        Exit Sub
+    End If
+    
+    Set listWB = Workbooks.Open(listFilePath)
+    Set listWS = listWB.Sheets(1)  ' Adjust if your list is on a different sheet.
+    
+    '===========================================================
+    ' Step 3: Specify the folder path that contains File B’s.
+    '===========================================================
+    ' Instead of prompting for a folder, specify the folder path here.
+    folderPath = "C:\Path\To\Folder\"  ' <-- Update this folder path!
+    If Right(folderPath, 1) <> "\" Then folderPath = folderPath & "\"
+    
+    '===========================================================
+    ' Step 4: Loop through each row of the list.
+    '===========================================================
+    ' (Assumes header is in row 1; data starts in row 2.)
+    lastRow = listWS.Cells(listWS.Rows.Count, "A").End(xlUp).Row
+    
+    For i = 2 To lastRow
+        fileBName = Trim(listWS.Cells(i, "A").Value)
+        destSheetName = Trim(listWS.Cells(i, "B").Value)
+        destCellAddress = Trim(listWS.Cells(i, "C").Value)
+        
+        If fileBName <> "" And destSheetName <> "" And destCellAddress <> "" Then
+            ' Build full path for File B
+            fileBPath = folderPath & fileBName
+            If Dir(fileBPath) <> "" Then
+                ' Open File B
+                Set fileB = Workbooks.Open(fileBPath)
+                
+                '---------------------------------------------------------
+                ' Step 4a: Copy data from File B.
+                ' In this example, we copy the entire used range from the first sheet.
+                ' Adjust this section if you need a different range.
+                '---------------------------------------------------------
+                With fileB.Sheets(1)
+                    Set srcRange = .UsedRange
+                    srcRange.Copy
+                End With
+                
+                '---------------------------------------------------------
+                ' Step 4b: Paste into File A.
+                ' In File A, use the sheet specified (destSheetName) and paste
+                ' starting at the target cell (destCellAddress). If the sheet
+                ' does not exist, report an error.
+                '---------------------------------------------------------
+                On Error Resume Next
+                Set destSheet = masterWB.Sheets(destSheetName)
+                On Error GoTo 0
+                If destSheet Is Nothing Then
+                    MsgBox "Sheet '" & destSheetName & "' not found in File A.", vbExclamation
+                Else
+                    With destSheet.Range(destCellAddress)
+                        ' You can choose the paste method. Here we paste values and formats.
+                        .PasteSpecial xlPasteValues
+                        .PasteSpecial xlPasteFormats
+                    End With
+                End If
+                
+                Application.CutCopyMode = False
+                ' Close File B (without saving changes)
+                fileB.Close SaveChanges:=False
+            Else
+                MsgBox "File not found:" & vbCrLf & fileBPath, vbExclamation
+            End If
+        End If
+    Next i
+    
+    '===========================================================
+    ' Step 5: Clean up
+    '===========================================================
+    listWB.Close False
+    MsgBox "Process completed.", vbInformation
+End Sub
