@@ -1,0 +1,53 @@
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import faiss
+
+def find_most_dissimilar_pair(list_a, list_b):
+    # Step 1: Load Sentence-BERT model and generate embeddings
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    embeddings_a = model.encode(list_a)  # Shape: (n, d)
+    embeddings_b = model.encode(list_b)  # Shape: (m, d)
+
+    # Step 2: Compute magnitudes of original embeddings
+    magnitudes_a = np.linalg.norm(embeddings_a, axis=1)  # Shape: (n,)
+    magnitudes_b = np.linalg.norm(embeddings_b, axis=1)  # Shape: (m,)
+
+    # Step 3: Normalize embeddings to unit length
+    embeddings_a_unit = embeddings_a / magnitudes_a[:, None]
+    embeddings_b_unit = embeddings_b / magnitudes_b[:, None]
+
+    # Step 4: Build FAISS index for List B using inner product
+    d = embeddings_b_unit.shape[1]  # Embedding dimension
+    index = faiss.IndexFlatIP(d)    # Inner product index
+    index.add(embeddings_b_unit)    # Add normalized embeddings of List B
+
+    # Step 5: Query for all pairs and find the most dissimilar
+    k = len(list_b)  # Set k to size of List B to get all distances
+    distances, indices = index.search(embeddings_a_unit, k)  # Shape: (n, m)
+
+    # For unit vectors, cosine similarity = inner product
+    # Cosine distance = 1 - cosine similarity
+    cosine_distances = 1 - distances  # Shape: (n, m)
+
+    # Find the pair with the maximum cosine distance
+    i, j = np.unravel_index(np.argmax(cosine_distances), cosine_distances.shape)
+    max_cosine_distance = cosine_distances[i, j]
+
+    # Get the most dissimilar pair
+    most_dissimilar_pair = (list_a[i], list_b[indices[i, j]])
+
+    # Get their magnitudes (from original embeddings)
+    magnitude_a = magnitudes_a[i]
+    magnitude_b = magnitudes_b[indices[i, j]]
+
+    return most_dissimilar_pair, max_cosine_distance, magnitude_a, magnitude_b
+
+# Example usage
+list_a = ["A sunny beach", "A quiet forest"]
+list_b = ["A bustling city", "A stormy mountain"]
+
+pair, distance, mag_a, mag_b = find_most_dissimilar_pair(list_a, list_b)
+print(f"Most dissimilar pair: {pair}")
+print(f"Cosine distance: {distance:.4f}")
+print(f"Magnitude of vector A: {mag_a:.4f}")
+print(f"Magnitude of vector B: {mag_b:.4f}")
