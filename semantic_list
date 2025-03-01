@@ -1,0 +1,78 @@
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import faiss
+
+def find_top_combinations(list_a, list_b, top_n=20):
+    # Step 1: Load Sentence-BERT model and generate embeddings
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    embeddings_a = model.encode(list_a)  # Shape: (n, d)
+    embeddings_b = model.encode(list_b)  # Shape: (m, d)
+
+    # Step 2: Compute magnitudes of original embeddings
+    magnitudes_a = np.linalg.norm(embeddings_a, axis=1)  # Shape: (n,)
+    magnitudes_b = np.linalg.norm(embeddings_b, axis=1)  # Shape: (m,)
+
+    # Step 3: Normalize embeddings to unit length
+    embeddings_a_unit = embeddings_a / magnitudes_a[:, None]
+    embeddings_b_unit = embeddings_b / magnitudes_b[:, None]
+
+    # Step 4: Build FAISS index for List B using inner product
+    d = embeddings_b_unit.shape[1]  # Embedding dimension
+    index = faiss.IndexFlatIP(d)    # Inner product index
+    index.add(embeddings_b_unit)    # Add normalized embeddings of List B
+
+    # Step 5: Query all distances for all items in List A
+    k = len(list_b)  # Retrieve distances to all items in List B
+    distances, indices = index.search(embeddings_a_unit, k)  # Shape: (n, m)
+
+    # Step 6: Convert inner products to cosine distances
+    cosine_distances = 1 - distances  # Shape: (n, m)
+
+    # Step 7: Flatten arrays and create pairs
+    n, m = cosine_distances.shape
+    flat_distances = cosine_distances.flatten()  # Shape: (n * m,)
+    flat_indices_a = np.repeat(np.arange(n), m)  # Shape: (n * m,)
+    flat_indices_b = indices.flatten()           # Shape: (n * m,)
+
+    # Step 8: Get top 20 most dissimilar (largest distances)
+    dissimilar_indices = np.argsort(flat_distances)[::-1][:top_n]  # Descending order
+    top_dissimilar = [
+        (
+            list_a[flat_indices_a[i]], 
+            list_b[flat_indices_b[i]], 
+            flat_distances[i], 
+            magnitudes_a[flat_indices_a[i]], 
+            magnitudes_b[flat_indices_b[i]]
+        )
+        for i in dissimilar_indices
+    ]
+
+    # Step 9: Get top 20 most similar (smallest distances)
+    similar_indices = np.argsort(flat_distances)[:top_n]  # Ascending order
+    top_similar = [
+        (
+            list_a[flat_indices_a[i]], 
+            list_b[flat_indices_b[i]], 
+            flat_distances[i], 
+            magnitudes_a[flat_indices_a[i]], 
+            magnitudes_b[flat_indices_b[i]]
+        )
+        for i in similar_indices
+    ]
+
+    return top_dissimilar, top_similar
+
+# Example usage
+list_a = ["A sunny beach", "A quiet forest", "A green meadow"]
+list_b = ["A bustling city", "A stormy mountain", "A dark cave"]
+
+top_dissimilar, top_similar = find_top_combinations(list_a, list_b, top_n=20)
+
+# Print results
+print("Top 20 Most Dissimilar Combinations:")
+for i, (item_a, item_b, distance, mag_a, mag_b) in enumerate(top_dissimilar, 1):
+    print(f"{i}. '{item_a}' & '{item_b}' | Cosine Distance: {distance:.4f} | Mag A: {mag_a:.4f} | Mag B: {mag_b:.4f}")
+
+print("\nTop 20 Most Similar Combinations:")
+for i, (item_a, item_b, distance, mag_a, mag_b) in enumerate(top_similar, 1):
+    print(f"{i}. '{item_a}' & '{item_b}' | Cosine Distance: {distance:.4f} | Mag A: {mag_a:.4f} | Mag B: {mag_b:.4f}")
