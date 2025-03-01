@@ -1,0 +1,287 @@
+import os
+import random
+import threading
+import time
+from dotenv import load_dotenv
+import pyttsx3  # For text-to-speech
+import speech_recognition as sr
+
+# Load environment variables
+load_dotenv(dotenv_path=r'C:\Users\kanaukyo\batch_file\src\linekeys.env')  # Adjust path as needed
+
+from openai import OpenAI
+try:
+    import whisper
+except ImportError:
+    whisper = None
+
+# Initialize pyttsx3 TTS engine (global)
+tts_engine = pyttsx3.init()
+
+# ----------------------
+# Whisper Integration
+# ----------------------
+class WhisperTranscriber:
+    def __init__(self, model_name="base"):
+        if whisper is None:
+            raise ImportError("Whisper library is not installed. Please install it via pip install git+https://github.com/openai/whisper.git")
+        self.model = whisper.load_model(model_name)
+    
+    def transcribe(self, audio_file: str) -> str:
+        result = self.model.transcribe(audio_file)
+        return result["text"]
+
+# ----------------------
+# Message Bus Definition
+# ----------------------
+class MessageBus:
+    def __init__(self):
+        self.topics = {}
+    
+    def publish(self, topic: str, sender: str, content: str, message_type: str):
+        if topic not in self.topics:
+            self.topics[topic] = []
+        message = {
+            "timestamp": time.time(),
+            "sender": sender,
+            "content": content,
+            "type": message_type
+        }
+        self.topics[topic].append(message)
+        print(f"[Bus] Published to '{topic}': {message}")
+    
+    def subscribe(self, topic: str) -> list:
+        return self.topics.get(topic, [])
+    
+    def get_latest(self, topic: str) -> dict or None:
+        messages = self.subscribe(topic)
+        if messages:
+            return messages[-1]
+        return None
+
+# ---------------------------
+# Base Agent and AI Calling
+# ---------------------------
+class BaseAgent:
+    def __init__(self, name: str, client: OpenAI, bus: MessageBus, voice: str, photo: str):
+        self.name = name
+        self.client = client
+        self.bus = bus
+        self.voice = voice
+        self.photo = photo
+
+    def display_identity(self):
+        print(f"\n--- {self.name} speaking ---")
+        print(f"Voice Style: {self.voice}")
+        print(f"Photo: {self.photo}")
+    
+    def speak(self, text: str):
+        tts_engine.say(text)
+        tts_engine.runAndWait()
+    
+    def act(self, prompt: str) -> str:
+        self.display_identity()
+        try:
+            completion = self.client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": os.getenv("SITE_URL", "http://localhost"),
+                    "X-Title": os.getenv("SITE_NAME", "Agentic AI System")
+                },
+                model="deepseek/deepseek-r1-distill-llama-70b",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            response = completion.choices[0].message.content  # Updated attribute access
+            print(f"[{self.name}] Response: {response}")
+            self.speak(response)
+            return response
+        except Exception as e:
+            error_msg = f"Error in {self.name}: {str(e)}"
+            print(error_msg)
+            self.speak(error_msg)
+            return error_msg
+    
+    def start_thinking(self):
+        def thinking_loop():
+            while True:
+                spoken_words = self.bus.subscribe("spoken_words")
+                if spoken_words:
+                    latest_spoken = spoken_words[-1]['content']
+                    thought = f"Considering the latest statement: {latest_spoken}"
+                else:
+                    thought = "Waiting for input..."
+                self.bus.publish(f"{self.name}_thoughts", self.name, thought, "thought")
+                time.sleep(5)  # Think every 5 seconds
+        thread = threading.Thread(target=thinking_loop)
+        thread.daemon = True
+        thread.start()
+
+# ----------------------------------------------
+# Specialized Agents
+# ----------------------------------------------
+class FundamentalAnalystAgent(BaseAgent):
+    pass
+
+class MacroEconomistAgent(BaseAgent):
+    pass
+
+class SectorAnalystAgent(BaseAgent):
+    pass
+
+class ProjectManagerAgent(BaseAgent):
+    pass
+
+class ProblemSolverAgent(BaseAgent):
+    pass
+
+class IdeaGeneratorAgent(BaseAgent):
+    pass
+
+class LeaderAgent(BaseAgent):
+    pass
+
+class PresenterAgent(BaseAgent):
+    pass
+
+class SupportingAgent(BaseAgent):
+    pass
+
+class SearchAgent(BaseAgent):
+    pass
+
+# ----------------------------------
+# Critic and Orchestrator Agents
+# ----------------------------------
+class CriticAgent:
+    def evaluate(self, final_output: str) -> float:
+        score = random.uniform(0, 1)
+        print(f"[Critic] Evaluation Score: {score}")
+        return score
+
+class OrestesAgent:
+    def __init__(self, client: OpenAI, agents: dict, critic: CriticAgent, bus: MessageBus, transcriber=None):
+        self.client = client
+        self.agents = agents
+        self.critic = critic
+        self.bus = bus
+        self.policy_weight = 0.5
+        self.transcriber = transcriber
+        self.recognizer = sr.Recognizer()
+        self.background_listener = None
+        self.start_background_listener()
+
+    def start_background_listener(self):
+        mic = sr.Microphone()
+        print("Starting background microphone listener...")
+        self.background_listener = self.recognizer.listen_in_background(mic, self.background_callback)
+
+    def background_callback(self, recognizer, audio):
+        try:
+            temp_audio_path = "temp_audio.wav"
+            with open(temp_audio_path, "wb") as f:
+                f.write(audio.get_wav_data())
+            tts_engine.stop()
+            if self.transcriber:
+                transcription = self.transcriber.transcribe(temp_audio_path)
+                self.bus.publish("user_input", "User", transcription, "spoken")
+                print(f"[Background Listener] Transcribed Voice Input: {transcription}")
+            else:
+                print("[Background Listener] Transcriber not available.")
+        except Exception as e:
+            print(f"[Background Listener] Error: {e}")
+
+    def orchestrate(self, overall_task: str):
+        self.bus.publish("overall_task", "Orestes", overall_task, "info")
+        print("\n[Orestes] Starting live committee session...\n")
+        
+        # Start thinking threads for all agents
+        for agent in self.agents.values():
+            agent.start_thinking()
+        
+        iteration = 0
+        max_iterations = 10  # Adjustable for simulation
+        while iteration < max_iterations:
+            iteration += 1
+            # Check for recent user_input
+            user_input = self.bus.get_latest("user_input")
+            if user_input and time.time() - user_input['timestamp'] < 10:  # Within last 10 seconds
+                if "stop" in user_input['content'].lower():
+                    print("[Orestes] User requested to stop the session.")
+                    break
+                # Check if user mentioned an agent
+                mentioned_agent = None
+                for agent_name in self.agents:
+                    if agent_name.lower() in user_input['content'].lower():
+                        mentioned_agent = agent_name
+                        break
+                if mentioned_agent:
+                    speaker = mentioned_agent
+                else:
+                    speaker = random.choice(list(self.agents.keys()))
+            else:
+                speaker = random.choice(list(self.agents.keys()))
+            
+            # Generate prompt
+            context = f"Overall task: {overall_task}\n"
+            spoken_history = self.bus.subscribe("spoken_words")
+            if spoken_history:
+                context += "Conversation history:\n" + "\n".join([f"{msg['sender']}: {msg['content']}" for msg in spoken_history[-5:]]) + "\n"
+            if user_input:
+                context += f"Latest user input: {user_input['content']}\n"
+            recent_thought = self.bus.get_latest(f"{speaker}_thoughts")
+            if recent_thought:
+                context += f"Your recent thought: {recent_thought['content']}\n"
+            prompt = f"{context}As the {speaker}, provide your analysis or input."
+            
+            # Have the agent act
+            response = self.agents[speaker].act(prompt)
+            self.bus.publish("spoken_words", speaker, response, "spoken")
+            
+            # Wait before next speaker
+            time.sleep(2)
+        
+        # Final summary by SupportingAgent
+        final_prompt = "Summarize the entire conversation and provide final insights."
+        final_response = self.agents["supporting"].act(final_prompt)
+        self.bus.publish("spoken_words", "SupportingAgent", final_response, "spoken")
+        print("\n[Orestes] Session concluded.\n")
+
+# ---------------------------
+# Main Execution Simulation
+# ---------------------------
+def main():
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY")
+    )
+    
+    transcriber = None
+    try:
+        transcriber = WhisperTranscriber(model_name="base")
+    except Exception as e:
+        print("Whisper not integrated or failed to load:", e)
+    
+    bus = MessageBus()
+    
+    agents = {
+        "fundamental": FundamentalAnalystAgent("FundamentalAnalyst", client, bus, voice="calm", photo="photos/fundamental.jpg"),
+        "macro": MacroEconomistAgent("MacroEconomist", client, bus, voice="authoritative", photo="photos/macro.jpg"),
+        "sector": SectorAnalystAgent("SectorAnalyst", client, bus, voice="analytical", photo="photos/sector.jpg"),
+        "project": ProjectManagerAgent("ProjectManager", client, bus, voice="organized", photo="photos/project.jpg"),
+        "problem": ProblemSolverAgent("ProblemSolver", client, bus, voice="creative", photo="photos/problem.jpg"),
+        "idea": IdeaGeneratorAgent("IdeaGenerator", client, bus, voice="innovative", photo="photos/idea.jpg"),
+        "leadership": LeaderAgent("Leader", client, bus, voice="inspirational", photo="photos/leader.jpg"),
+        "presentation": PresenterAgent("Presenter", client, bus, voice="persuasive", photo="photos/presenter.jpg"),
+        "supporting": SupportingAgent("SupportingAgent", client, bus, voice="observant", photo="photos/supporting.jpg"),
+        "search": SearchAgent("SearchAgent", client, bus, voice="inquisitive", photo="photos/search.jpg")
+    }
+    
+    critic = CriticAgent()
+    
+    orestes = OrestesAgent(client, agents, critic, bus, transcriber)
+    
+    overall_task = "Analyze the potential of Company X in the renewable energy sector"
+    
+    orestes.orchestrate(overall_task)
+
+if __name__ == "__main__":
+    main()
