@@ -1,0 +1,42 @@
+https://news.google.com/rss/search?q=[KEYWORD]+after:2025-03-01+before:2025-03-05
+
+https://news.google.com/rss/search?q=[KEYWORD]&hl=[LANGUAGE_CODE]
+breaking news
+https://feeds.content.dowjones.io/public/rss/mw_marketpulse
+
+import requests
+from bs4 import BeautifulSoup
+
+# RSS feed URL
+rss_url = "https://news.google.com/rss/search?q=%5Bstock+market%5D+after:2025-03-01+before:2025-03-05&hl=ja&gl=JP&ceid=JP:ja"
+
+# Fetch the RSS feed
+response = requests.get(rss_url)
+xml_data = response.content
+
+# Parse XML with BeautifulSoup
+soup = BeautifulSoup(xml_data, "xml")
+
+# Extract items
+items = soup.find_all("item")
+for item in items:
+    title = item.find("title").text
+    pub_date = item.find("pubDate").text
+    
+    # Extract and clean description
+    description_html = item.find("description").text
+    description_soup = BeautifulSoup(description_html, "html.parser")
+    
+    # Extract actual article link from <a href>
+    link_tag = description_soup.find("a")
+    link = link_tag["href"] if link_tag else "No link available"
+    
+    # Clean description (remove HTML)
+    description = description_soup.get_text()
+
+    # Print the extracted data
+    print(f"Title: {title}")
+    print(f"Link: {link}")
+    print(f"Published Date: {pub_date}")
+    print(f"Description: {description}")
+    print("-" * 100)
