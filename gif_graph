@@ -2,19 +2,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 
+# Data preparation
+categories = ['A', 'B', 'C', 'D', 'E']
+initial_values = np.array([100, 3, 30, 40, 50])
+final_values = np.array([50, 60, 70, 80, 90])
+
 # Initialize the figure and axis
 fig, ax = plt.subplots()
-x = np.linspace(0, 2 * np.pi, 100)
-line, = ax.plot(x, np.sin(x))
+bars = ax.bar(categories, initial_values, color='skyblue')
+ax.set_ylim(0, max(max(initial_values), max(final_values)) * 1.1)
 
-# Define the update function
+# Update function for animation
 def update(frame):
-    line.set_ydata(np.sin(x + frame / 10.0))  # Update the y-data
-    return line,
+    progress = frame / num_frames
+    current_values = initial_values + progress * (final_values - initial_values)
+    for bar, new_height in zip(bars, current_values):
+        bar.set_height(new_height)
+    return bars
 
-# Create the animation
-ani = FuncAnimation(fig, update, frames=100, blit=True)
+# Number of frames and animation creation
+num_frames = 100
+anim = FuncAnimation(fig, update, frames=num_frames, interval=50, blit=True)
 
 # Save the animation as a GIF
-writer = PillowWriter(fps=15)
-ani.save('sine_wave.gif', writer=writer)
+writer = PillowWriter(fps=20)
+anim.save('bar_chart_transition.gif', writer=writer)
+
+plt.show()
