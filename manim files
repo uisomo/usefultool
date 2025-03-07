@@ -69,4 +69,9 @@ forecast_data = {
                                                              'Company C', 'Company F', 
                                                              'Company G'] 
                           else 'Recession' for company in companies_df['company_name']],
-    'risk_assessment': ['Medium' if company in ['Company A', 'Company B', 'Company C',​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+    'risk_assessment': ['Medium' if company in ['Company A', 'Company B', 'Company C', 
+                                                'Company F', 'Company G'] 
+                        else 'High' for company in companies_df['company_name']]
+}
+forecast_df = pd.DataFrame(forecast_data)
+forecast_df.to_csv('forecast_downturn.csv', index=False, header=False)
