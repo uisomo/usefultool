@@ -1,0 +1,155 @@
+from manim import *
+import pandas as pd
+import numpy as np
+
+class MarketCapHeatmap(Scene):
+    def construct(self):
+        # --- Step 1: Load and Prepare Sector Data ---
+        sectors_df = pd.read_csv('sectors.csv', names=['sector_name', 'cob', 'pcob'], header=None)
+        sectors_df['difference'] = sectors_df['cob'] - sectors_df['pcob']
+
+        # Create initial colorless sector heatmap
+        grid_size = int(np.ceil(np.sqrt(len(sectors_df))))
+        squares = VGroup()
+        for i, row in sectors_df.iterrows():
+            size = np.sqrt(row['cob'] / 1000)  # Scale size based on market cap
+            square = Square(side_length=size).set_fill(GRAY, opacity=0.5).set_stroke(WHITE)
+            x = (i % grid_size) * 2 - (grid_size - 1)
+            y = (i // grid_size) * 2 - (grid_size - 1)
+            square.move_to([x, y, 0])
+            squares.add(square)
+            label = Text(row['sector_name'], font_size=24).next_to(square, DOWN)
+            squares.add(label)
+
+        self.play(Create(squares))
+        self.wait(1)
+
+        # --- Step 2: Color the Heatmap Based on Differences ---
+        def get_color(diff):
+            max_gain = sectors_df['difference'].max()
+            max_loss = sectors_df['difference'].min()
+            if diff >= 0:
+                intensity = diff / max_gain if max_gain > 0 else 0
+                return interpolate_color(LIGHT_GREY, DARK_GREEN, intensity)
+            else:
+                intensity = abs(diff) / abs(max_loss) if max_loss < 0 else 0
+                return interpolate_color(LIGHT_GREY, DARK_RED, intensity)
+
+        # Animate color change
+        animations = []
+        for i, square in enumerate(squares[::2]):  # Every other element is a square
+            diff = sectors_df.iloc[i]['difference']
+            new_color = get_color(diff)
+            animations.append(square.animate.set_fill(new_color, opacity=1))
+        
+        self.play(*animations, run_time=2)
+        self.wait(1)
+
+        # --- Step 3: Zoom into Highest Gain Sector ---
+        max_gain_sector = sectors_df.loc[sectors_df['difference'].idxmax(), 'sector_name']
+        max_gain_square_idx = sectors_df[sectors_df['sector_name'] == max_gain_sector].index[0] * 2
+        max_gain_square = squares[max_gain_square_idx]
+
+        # Zoom in animation
+        self.play(
+            FadeOut(VGroup(*[s for s in squares if s != max_gain_square and s != squares[max_gain_square_idx + 1]])),
+            max_gain_square.animate.scale(4).move_to(ORIGIN),
+            run_time=2
+        )
+
+        # Load company data for this sector
+        companies_df = pd.read_csv('companies.csv', names=['company_name', 'cob', 'pcob', 'sector_name'], header=None)
+        sector_companies = companies_df[companies_df['sector_name'] == max_gain_sector]
+        sector_companies['difference'] = sector_companies['cob'] - sector_companies['pcob']
+
+        # Create company heatmap
+        company_squares = VGroup()
+        for i, row in sector_companies.iterrows():
+            size = np.sqrt(row['cob'] / 500)
+            square = Square(side_length=size).set_fill(get_color(row['difference']), opacity=1)
+            x = (i - len(sector_companies) / 2) * 1.5
+            square.move_to([x, 0, 0])
+            company_squares.add(square)
+            label = Text(row['company_name'], font_size=20).next_to(square, DOWN)
+            company_squares.add(label)
+
+        self.play(Transform(max_gain_square, company_squares), run_time=2)
+        self.wait(1)
+
+        # --- Step 4: Zoom Out and Into Highest Loss Sector ---
+        self.play(Transform(max_gain_square, squares), FadeIn(squares), run_time=2)
+
+        max_loss_sector = sectors_df.loc[sectors_df['difference'].idxmin(), 'sector_name']
+        max_loss_square_idx = sectors_df[sectors_df['sector_name'] == max_loss_sector].index[0] * 2
+        max_loss_square = squares[max_loss_square_idx]
+
+        self.play(
+            FadeOut(VGroup(*[s for s in squares if s != max_loss_square and s != squares[max_loss_square_idx + 1]])),
+            max_loss_square.animate.scale(4).move_to(ORIGIN),
+            run_time=2
+        )
+
+        # Load company data for loss sector
+        loss_companies = companies_df[companies_df['sector_name'] == max_loss_sector]
+        loss_companies['difference'] = loss_companies['cob'] - loss_companies['pcob']
+
+        # Create company heatmap
+        loss_squares = VGroup()
+        for i, row in loss_companies.iterrows():
+            size = np.sqrt(row['cob'] / 500)
+            square = Square(side_length=size).set_fill(get_color(row['difference']), opacity=1)
+            x = (i - len(loss_companies) / 2) * 1.5
+            square.move_to([x, 0, 0])
+            loss_squares.add(square)
+            label = Text(row['company_name'], font_size=20).next_to(square, DOWN)
+            loss_squares.add(label)
+
+        self.play(Transform(max_loss_square, loss_squares), run_time=2)
+        self.wait(1)
+
+        # --- Step 5: Detailed Company Analysis ---
+        company_name = loss_companies.iloc[0]['company_name']  # Example: first company in loss sector
+        company_square = loss_squares[0]
+
+        self.play(
+            FadeOut(VGroup(*loss_squares[1:])),
+            company_square.animate.scale(3).move_to(ORIGIN),
+            run_time=2
+        )
+
+        # Load and display sales data (Earnings Bar Graph)
+        sales_df = pd.read_csv('sales.csv', names=['company_name', 'year', 'sales'], header=None)
+        company_sales = sales_df[sales_df['company_name'] == company_name]
+        earnings = BarChart(
+            values=company_sales['sales'].tolist(),
+            bar_names=company_sales['year'].astype(str).tolist(),
+            y_range=[0, company_sales['sales'].max() * 1.1, company_sales['sales'].max() / 5]
+        ).scale(0.5).move_to(UP * 2 + LEFT * 2)
+
+        # Load and display balance sheet data (Growth Line)
+        balance_df = pd.read_csv('balance_sheet.csv', names=['company_name', 'asset_name', 'asset_value', 'debt_name', 'debt_value'], header=None)
+        company_balance = balance_df[balance_df['company_name'] == company_name]
+        assets = company_balance['asset_value'].sum()
+        debts = company_balance['debt_value'].sum()
+        net = assets - debts
+        balance = Line(
+            [0, 0, 0], [3, net / 1000, 0], color=BLUE  # Simple growth representation
+        ).scale(0.5).move_to(UP * 2 + RIGHT * 2)
+
+        # Load and display forecast and downturn data
+        forecast_df = pd.read_csv('forecast_downturn.csv', names=['company_name', 'forecast', 'strategy', 'downturn_scenario', 'risk_assessment'], header=None)
+        company_forecast = forecast_df[forecast_df['company_name'] == company_name].iloc[0]
+        forecast_text = Text(f"Forecast: {company_forecast['forecast']}\nStrategy: {company_forecast['strategy']}", font_size=20).move_to(DOWN * 2 + LEFT * 2)
+        downturn_text = Text(f"Downturn: {company_forecast['downturn_scenario']}\nRisk: {company_forecast['risk_assessment']}", font_size=20).move_to(DOWN * 2 + RIGHT * 2)
+
+        # Animate all four sections
+        self.play(
+            Create(earnings),
+            Create(balance),
+            Create(forecast_text),
+            Create(downturn_text),
+            run_time=2
+        )
+        self.wait(2)
+
+# To render: run `manim -pql script.py MarketCapHeatmap`
