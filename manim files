@@ -1,0 +1,72 @@
+import pandas as pd
+
+# Generate sectors.csv
+# Columns: sector_name, cob (current market cap), pcob (previous market cap)
+sectors_data = {
+    'sector_name': ['Tech', 'Finance', 'Health', 'Energy'],
+    'cob': [1200, 800, 900, 600],
+    'pcob': [1000, 850, 850, 800]
+}
+sectors_df = pd.DataFrame(sectors_data)
+sectors_df.to_csv('sectors.csv', index=False, header=False)
+
+# Generate companies.csv
+# Columns: company_name, cob, pcob, sector_name
+companies_data = {
+    'company_name': ['Company A', 'Company B', 'Company C', 'Company D', 'Company E', 
+                     'Company F', 'Company G', 'Company H', 'Company I'],
+    'cob': [500, 400, 300, 400, 400, 450, 450, 300, 300],
+    'pcob': [400, 350, 250, 425, 425, 425, 425, 400, 400],
+    'sector_name': ['Tech', 'Tech', 'Tech', 'Finance', 'Finance', 
+                    'Health', 'Health', 'Energy', 'Energy']
+}
+companies_df = pd.DataFrame(companies_data)
+companies_df.to_csv('companies.csv', index=False, header=False)
+
+# Generate sales.csv
+# Columns: company_name, year, sales
+sales_data = []
+for company in companies_df['company_name']:
+    # Companies with gains (Tech and Health) have increasing sales
+    if company in ['Company A', 'Company B', 'Company C', 'Company F', 'Company G']:
+        sales = [100, 120, 150]  # Increasing sales
+    else:
+        sales = [150, 120, 100]  # Decreasing sales
+    for year, sale in zip([2020, 2021, 2022], sales):
+        sales_data.append([company, year, sale])
+sales_df = pd.DataFrame(sales_data, columns=['company_name', 'year', 'sales'])
+sales_df.to_csv('sales.csv', index=False, header=False)
+
+# Generate balance_sheet.csv
+# Columns: company_name, asset_name, asset_value, debt_name, debt_value
+balance_data = []
+for company in companies_df['company_name']:
+    # Companies with gains have higher net assets
+    if company in ['Company A', 'Company B', 'Company C', 'Company F', 'Company G']:
+        assets = [('Cash', 200), ('Property', 300)]
+        debts = [('Loan', 100), ('Bond', 50)]
+    else:
+        assets = [('Cash', 150), ('Property', 250)]
+        debts = [('Loan', 150), ('Bond', 100)]
+    for asset, debt in zip(assets, debts):
+        balance_data.append([company, asset[0], asset[1], debt[0], debt[1]])
+balance_df = pd.DataFrame(balance_data, 
+                         columns=['company_name', 'asset_name', 'asset_value', 
+                                  'debt_name', 'debt_value'])
+balance_df.to_csv('balance_sheet.csv', index=False, header=False)
+
+# Generate forecast_downturn.csv
+# Columns: company_name, forecast, strategy, downturn_scenario, risk_assessment
+forecast_data = {
+    'company_name': companies_df['company_name'],
+    'forecast': ['Strong growth' if company in ['Company A', 'Company B', 'Company C', 
+                                                'Company F', 'Company G'] 
+                 else 'Challenging times' for company in companies_df['company_name']],
+    'strategy': ['Expand R&D' if company in ['Company A', 'Company B', 'Company C', 
+                                             'Company F', 'Company G'] 
+                 else 'Cost cutting' for company in companies_df['company_name']],
+    'downturn_scenario': ['Market saturation' if company in ['Company A', 'Company B', 
+                                                             'Company C', 'Company F', 
+                                                             'Company G'] 
+                          else 'Recession' for company in companies_df['company_name']],
+    'risk_assessment': ['Medium' if company in ['Company A', 'Company B', 'Company C',​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
