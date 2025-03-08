@@ -1,0 +1,27 @@
+import scattertext as st
+
+# Sample text data
+text_messages = [
+    "Hey, what are you up to?",
+    "Nothing much, just hanging out.",
+    "Cool, want to grab coffee?",
+    "Sure, sounds good.",
+]
+
+corpus = st.CorpusFromPandas(
+    text_messages,
+    category_col='category',
+    metadata_df=pd.DataFrame({'category': ['text'] * len(text_messages)}),
+    nlp=st.whitespace_nlp
+)
+
+html = st.produce_scattertext_explorer(
+    corpus,
+    category='text',
+    category_name='Text',
+    metadata=corpus.get_metadata(),
+    width_in_pixels=500,
+    height_in_pixels=500
+)
+
+st.open_in_browser(html)
