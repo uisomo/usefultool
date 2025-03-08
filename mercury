@@ -1,0 +1,50 @@
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+
+# Step 1: Load Data
+df_cob = pd.read_csv('cob.csv')
+df_pcob = pd.read_csv('pcob.csv')
+
+# Step 2: Compute Differences
+df_diff = df_cob.merge(df_pcob, on='Country', suffixes=('_COB', '_PCOB'))
+df_diff['Difference'] = df_diff['Market_Cap_COB'] - df_diff['Market_Cap_PCOB']
+
+# Step 3: Create Heatmap
+fig = px.scatter(df_diff, x='Country', y='Country', size='Market_Cap_COB', color='Difference',
+                 color_continuous_scale=['red', 'green'], title='Market Capitalization Heatmap')
+
+# Step 4: Zoom Functionality
+def zoom_to_country(country):
+    country_data = df_diff[df_diff['Country'] == country]
+    sector_data = pd.read_csv('sectors.csv')  # Assuming this CSV has columns: Country, Sector, Market_Cap
+    sector_data = sector_data[sector_data['Country'] == country]
+
+    fig = go.Figure()
+
+    # Add country square
+    fig.add_trace(go.Scatter(
+        x=[0, 1],
+        y=[0, 1],
+        mode='markers',
+        marker=dict(size=100, color='blue', line_width=2),
+        name=country
+    ))
+
+    # Add sector squares
+    for i, row in sector_data.iterrows():
+        fig.add_trace(go.Scatter(
+            x=[i / len(sector_data), (i + 1) / len(sector_data)],
+            y=[0, 1],
+            mode='markers',
+            marker=dict(size=row['Market_Cap'] / 1000000, color='red' if row['Market_Cap'] < 0 else 'green', line_width=2),
+            name=row['Sector']
+        ))
+
+    fig.update_layout(title=f'Sector Breakdown for {country}', xaxis_title='', yaxis_title='', showlegend=False)
+    fig.show()
+
+# Example usage
+zoom_to_country('United States')
