@@ -1,0 +1,27 @@
+import pandas as pd
+from openpyxl import load_workbook
+
+# Sample DataFrame
+df = pd.DataFrame({
+    'Name': ['Alice', 'Bob', 'Charlie'],
+    'Age': [25, 30, 35]
+})
+
+# Path to your macro-enabled .xlsm file
+file_path = 'your_macro_enabled_file.xlsm'
+
+# Specify the sheet name and the starting row and column (0-indexed)
+sheet_name = 'Data'
+startrow = 3  # This will start writing at the 4th row in Excel
+startcol = 1  # This will start writing at the 2nd column in Excel (Column B)
+
+# Load the workbook with macros preserved
+book = load_workbook(file_path, keep_vba=True)
+
+# Use ExcelWriter to append data without corrupting the macros
+with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace', keep_vba=True) as writer:
+    writer.book = book
+    # Write the DataFrame to the specified sheet, starting at the given row and column.
+    df.to_excel(writer, sheet_name=sheet_name, startrow=startrow, startcol=startcol, index=False)
+
+# The file is automatically saved when exiting the context manager.
