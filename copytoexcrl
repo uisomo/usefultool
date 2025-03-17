@@ -1,5 +1,5 @@
 import pandas as pd
-from openpyxl import load_workbook
+import xlwings as xw
 
 # Sample DataFrame
 df = pd.DataFrame({
@@ -7,21 +7,39 @@ df = pd.DataFrame({
     'Age': [25, 30, 35]
 })
 
-# Path to your macro-enabled .xlsm file
-file_path = 'your_macro_enabled_file.xlsm'
+# Define file paths
+dummy_file = 'dummy.xlsx'       # Temporary file to store the DataFrame (XLSX)
+final_file = 'final_file.xlsm'   # Final macro-enabled workbook
 
-# Specify the sheet name and the starting row and column (0-indexed)
-sheet_name = 'Data'
-startrow = 3  # This will start writing at the 4th row in Excel
-startcol = 1  # This will start writing at the 2nd column in Excel (Column B)
+# Step 1: Write the DataFrame to a dummy XLSX file.
+with pd.ExcelWriter(dummy_file, engine='openpyxl') as writer:
+    df.to_excel(writer, sheet_name='Data', index=False)
 
-# Load the workbook with macros preserved
-book = load_workbook(file_path, keep_vba=True)
+# Step 2: Use xlwings to copy data from the dummy file to the final file.
+app = xw.App(visible=False)  # Set visible=True for debugging
+try:
+    wb_dummy = app.books.open(dummy_file)
+    wb_final = app.books.open(final_file)
 
-# Use ExcelWriter to append data without corrupting the macros
-with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace', keep_vba=True) as writer:
-    writer.book = book
-    # Write the DataFrame to the specified sheet, starting at the given row and column.
-    df.to_excel(writer, sheet_name=sheet_name, startrow=startrow, startcol=startcol, index=False)
+    # Access the sheet with the DataFrame in the dummy file.
+    dummy_sheet = wb_dummy.sheets['Data']
+    
+    # Ensure the target sheet exists in the final file. Change 'Data' to your desired sheet name.
+    final_sheet = wb_final.sheets['Data']
 
-# The file is automatically saved when exiting the context manager.
+    # Define the destination cell in the final workbook (e.g., starting at cell B4).
+    destination = final_sheet.range('B4')
+    
+    # Determine the used range in the dummy sheet.
+    dummy_range = dummy_sheet.used_range
+
+    # Perform the native copy/paste operation.
+    dummy_range.copy(destination)
+
+    # Save changes to the final workbook.
+    wb_final.save(final_file)
+finally:
+    # Close workbooks and quit the Excel application.
+    wb_dummy.close()
+    wb_final.close()
+    app.quit()
