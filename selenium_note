@@ -1,0 +1,35 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import time
+import os
+
+driver = webdriver.Chrome()
+
+# Step 1: Login to note
+driver.get("https://note.com/login")
+time.sleep(3)
+
+# Fill in login info
+driver.find_element(By.NAME, "email").send_keys("YOUR_EMAIL")
+driver.find_element(By.NAME, "password").send_keys("YOUR_PASSWORD")
+driver.find_element(By.NAME, "password").send_keys(Keys.RETURN)
+time.sleep(5)
+
+# Step 2: Go to create new note page
+driver.get("https://note.com/notes/new")
+time.sleep(5)
+
+# Step 3: Input title and content
+driver.find_element(By.CSS_SELECTOR, "[placeholder='タイトル']").send_keys("自動投稿タイトル")
+content_field = driver.find_element(By.CSS_SELECTOR, "[placeholder='テキストを入力']")
+content_field.click()
+content_field.send_keys("これはSeleniumを使った自動投稿のテストです。")
+
+# Step 4: Publish
+publish_button = driver.find_element(By.XPATH, "//button[contains(text(),'公開')]")
+publish_button.click()
+time.sleep(3)
+
+# Optional: Close browser
+driver.quit()
