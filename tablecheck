@@ -1,0 +1,29 @@
+# app.py
+
+import streamlit as st
+import pandas as pd
+
+# 1. Upload and read the CSV
+st.title("Interactive Table with Checkboxes")
+
+uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    st.write("### Original Table")
+    st.dataframe(df)
+
+    st.write("### Select Cells")
+    checked_texts = []
+
+    # 2. Render table with checkboxes
+    for row_idx in range(len(df)):
+        cols = st.columns(len(df.columns))
+        for col_idx, col_name in enumerate(df.columns):
+            cell_value = str(df.at[row_idx, col_name])
+            if cols[col_idx].checkbox(label=cell_value, key=f"{row_idx}_{col_idx}"):
+                checked_texts.append(cell_value)
+
+    # 3. Output result
+    if checked_texts:
+        st.write("### Combined Output:")
+        st.success(" ".join(checked_texts))
