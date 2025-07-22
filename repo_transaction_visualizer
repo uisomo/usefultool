@@ -1,60 +1,34 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.collections import LineCollection
-import seaborn as sns
-from scipy.interpolate import interp1d
+import matplotlib.patches as mpatches
 
-# Set style for clean visuals
+# Set style
 plt.style.use('seaborn-v0_8-whitegrid')
 
-class TenantAnalysisModule:
+class EnhancedBulletChart:
     """
-    Module for creating tenant analysis charts with client, average, and median lines
-    Each client can have multiple rows for different category segments
+    Enhanced Bullet Chart specifically designed for tenant analysis
     """
     
     def __init__(self, data):
-        """
-        Initialize with data containing multiple rows per client
-        
-        Parameters:
-        - data: DataFrame with columns [client_id_col, measure_col, category_col, ...]
-                Each client can have multiple rows for different category segments
-        """
         self.data = data
         
     def prepare_data(self, client_id, client_id_col, measure_col, category_col, category_order):
-        """
-        Prepare data for the specific client, measure, and category with custom ordering
-        
-        Parameters:
-        - client_id: ID of the client to highlight
-        - client_id_col: Column name for client ID (e.g., 'client_id')
-        - measure_col: Column name for the measure (e.g., 'net_dv01')
-        - category_col: Column name for the category (e.g., 'tenor_bucket')
-        - category_order: List defining the order of categories (e.g., ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y'])
-        
-        Returns:
-        - DataFrame with client, average, and median values by category in specified order
-        """
-        
-        # Filter data to only include categories in the order list
+        """Prepare data for the specific client"""
         filtered_data = self.data[self.data[category_col].isin(category_order)].copy()
         
-        # Calculate average and median for each category segment across all clients
-        # EXCLUDING ZERO VALUES
+        # For overall statistics (without issuer), we need to aggregate by category first
+        # to avoid duplicates when multiple issuers have the same category
         stats_list = []
         for category in category_order:
             category_data = filtered_data[filtered_data[category_col] == category][measure_col]
-            # Filter out zero values
             non_zero_data = category_data[category_data != 0]
             
             if len(non_zero_data) > 0:
                 avg_val = non_zero_data.mean()
                 med_val = non_zero_data.median()
             else:
-                # If all values are zero or no data exists, use 0
                 avg_val = 0
                 med_val = 0
             
@@ -66,539 +40,541 @@ class TenantAnalysisModule:
         
         stats = pd.DataFrame(stats_list)
         
-        # Get client-specific data
-        client_data = filtered_data[filtered_data[client_id_col] == client_id][[category_col, measure_col]].copy()
+        # Get client-specific data - need to aggregate by category if there are multiple issuers
+        client_data_all = filtered_data[filtered_data[client_id_col] == client_id]
+        
+        # Group by category and sum the values (combining all issuers)
+        client_data = client_data_all.groupby(category_col)[measure_col].sum().reset_index()
         client_data.columns = [category_col, 'client_value']
         
-        # Merge client data with stats
         result = stats.merge(client_data, on=category_col, how='left')
         
-        # Create a category ordering mapping
         category_order_map = {cat: i for i, cat in enumerate(category_order)}
         result['sort_order'] = result[category_col].map(category_order_map)
-        
-        # Sort by the specified category order
         result = result.sort_values('sort_order').reset_index(drop=True)
-        
-        # Drop the sort_order column
         result = result.drop('sort_order', axis=1)
-        
-        # Fill NaN values for client if they don't have data for some categories
         result['client_value'] = result['client_value'].fillna(0)
         
         return result
     
-    def format_number(self, value):
+    def prepare_data_with_issuer(self, client_id, client_id_col, measure_col, category_col, 
+                                category_order, issuer_col):
         """
-        Format numbers with appropriate units (k for thousands, m for millions)
-        
-        Parameters:
-        - value: numeric value to format
+        Prepare data with issuer grouping and ordering
         
         Returns:
-        - formatted string with units
+        - List of DataFrames, one for each issuer, ordered by absolute total measure value
         """
-        abs_value = abs(value)
+        # Get client data
+        client_data = self.data[self.data[client_id_col] == client_id].copy()
         
+        # Calculate total measure by issuer for this client
+        issuer_totals = client_data.groupby(issuer_col)[measure_col].sum()
+        
+        # Sort by absolute value (largest absolute exposure first)
+        issuer_totals_abs_sorted = issuer_totals.reindex(issuer_totals.abs().sort_values(ascending=False).index)
+        
+        # Create ordered list of issuers
+        ordered_issuers = issuer_totals_abs_sorted.index.tolist()
+        
+        # Prepare data for each issuer
+        issuer_data_list = []
+        for idx, issuer in enumerate(ordered_issuers, 1):
+            # Filter data for this issuer
+            issuer_filtered = self.data[self.data[issuer_col] == issuer].copy()
+            
+            # Prepare data as before
+            filtered_data = issuer_filtered[issuer_filtered[category_col].isin(category_order)].copy()
+            
+            stats_list = []
+            for category in category_order:
+                category_data = filtered_data[filtered_data[category_col] == category][measure_col]
+                non_zero_data = category_data[category_data != 0]
+                
+                if len(non_zero_data) > 0:
+                    avg_val = non_zero_data.mean()
+                    med_val = non_zero_data.median()
+                else:
+                    avg_val = 0
+                    med_val = 0
+                
+                stats_list.append({
+                    category_col: category,
+                    'average': avg_val,
+                    'median': med_val
+                })
+            
+            stats = pd.DataFrame(stats_list)
+            
+            # Get client-specific data for this issuer
+            client_issuer_data = issuer_filtered[
+                issuer_filtered[client_id_col] == client_id
+            ][[category_col, measure_col]].copy()
+            client_issuer_data.columns = [category_col, 'client_value']
+            
+            result = stats.merge(client_issuer_data, on=category_col, how='left')
+            
+            # Order by category_order
+            category_order_map = {cat: i for i, cat in enumerate(category_order)}
+            result['sort_order'] = result[category_col].map(category_order_map)
+            result = result.sort_values('sort_order').reset_index(drop=True)
+            result = result.drop('sort_order', axis=1)
+            result['client_value'] = result['client_value'].fillna(0)
+            
+            issuer_data_list.append({
+                'issuer': issuer,
+                'number': idx,
+                'total': issuer_totals_abs_sorted[issuer],
+                'data': result
+            })
+        
+        return issuer_data_list
+    
+    def format_number(self, value):
+        """Format numbers with k/m units"""
+        abs_value = abs(value)
         if abs_value >= 1_000_000:
             return f'{value/1_000_000:.1f}m'
         elif abs_value >= 1_000:
             return f'{value/1_000:.1f}k'
         else:
-            return f'{value:.1f}'
+            return f'{value:.0f}'
     
-    def create_gradient_line(self, x, y, ax, gradient_type='client', line_style='average', label='', linewidth=3):
-        """
-        Create a gradient line based on the type
+    def create_bullet_chart(self, client_id, client_id_col, measure_col, category_col, 
+                           category_order, title=None, figsize=(16, 10)):
+        """Create an enhanced bullet chart with better label positioning"""
+        data = self.prepare_data(client_id, client_id_col, measure_col, category_col, category_order)
         
-        Parameters:
-        - x, y: coordinates
-        - ax: matplotlib axis
-        - gradient_type: 'client' (blue/red) or 'stats' (grey)
-        - line_style: 'average' (solid) or 'median' (dashed)
-        - label: legend label
-        - linewidth: line thickness
-        """
-        
-        # Handle case where we have insufficient data for interpolation
-        if len(x) < 2:
-            return
-        
-        # For interpolation, we'll create a smooth curve that passes through the data points
-        # This ensures dots are always on the curve
-        if len(x) > 2:
-            try:
-                # Use cubic interpolation for smooth curves
-                f = interp1d(x, y, kind='cubic')
-                x_smooth = np.linspace(x.min(), x.max(), 200)
-                y_smooth = f(x_smooth)
-            except:
-                # Fall back to linear if cubic fails
-                f = interp1d(x, y, kind='linear')
-                x_smooth = np.linspace(x.min(), x.max(), 200)
-                y_smooth = f(x_smooth)
-        else:
-            # For 2 points, just use linear
-            x_smooth, y_smooth = x, y
-        
-        # Create line segments
-        points = np.array([x_smooth, y_smooth]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-        
-        # Create colors based on gradient type
-        colors = []
-        
-        if gradient_type == 'client':
-            # Blue/red gradient for client
-            y_max = max(abs(y.max()), abs(y.min())) if len(y) > 0 and not np.isnan(y).all() else 1
-            
-            for i in range(len(segments)):
-                avg_y = (y_smooth[i] + y_smooth[i+1]) / 2
-                
-                if avg_y >= 0:
-                    intensity = min(avg_y / y_max, 1.0) if y_max > 0 else 0
-                    color = plt.cm.Blues(0.4 + intensity * 0.6)
-                else:
-                    intensity = min(abs(avg_y) / y_max, 1.0) if y_max > 0 else 0
-                    color = plt.cm.Reds(0.4 + intensity * 0.6)
-                
-                colors.append(color)
-                
-        else:  # gradient_type == 'stats'
-            # Grey gradient based on distance from zero (white near zero, black far from zero)
-            y_abs_max = max(abs(y.max()), abs(y.min())) if len(y) > 0 and not np.isnan(y).all() else 1
-            
-            for i in range(len(segments)):
-                avg_y = abs((y_smooth[i] + y_smooth[i+1]) / 2)
-                
-                # Calculate intensity based on distance from zero
-                # 0 -> white (0.95), max -> black (0.1)
-                intensity = avg_y / y_abs_max if y_abs_max > 0 else 0
-                grey_value = 0.95 - (intensity * 0.85)  # Range from 0.95 (near white) to 0.1 (near black)
-                
-                color = (grey_value, grey_value, grey_value, 0.9)
-                colors.append(color)
-        
-        # Draw the line
-        if line_style == 'median':
-            # For median, draw one continuous dashed line instead of segments
-            # This ensures consistent dashing
-            if len(x_smooth) > 1:
-                # Calculate the gradient colors for the entire line
-                y_abs_max = max(abs(y.max()), abs(y.min())) if len(y) > 0 and not np.isnan(y).all() else 1
-                
-                # For a gradient effect on dashed line, we'll use the average color
-                avg_y = np.mean(np.abs(y))
-                intensity = avg_y / y_abs_max if y_abs_max > 0 else 0
-                grey_value = 0.95 - (intensity * 0.85)
-                line_color = (grey_value, grey_value, grey_value, 0.9)
-                
-                # Draw the entire line as dashed with consistent pattern
-                ax.plot(x_smooth, y_smooth, color=line_color, linewidth=linewidth, 
-                       alpha=0.9, linestyle='--', dashes=(5, 3))  # 5 on, 3 off for clear dashing
-        else:
-            # For solid lines (average and client), use LineCollection for gradient
-            lc = LineCollection(segments, colors=colors, linewidths=linewidth, alpha=0.9)
-            ax.add_collection(lc)
-        
-        # Add markers at actual data points (not interpolated points)
-        # This ensures dots are exactly where the data is
-        marker_style = 'o' if line_style == 'average' else 's'  # Circle for average, square for median
-        
-        for i, (xi, yi) in enumerate(zip(x, y)):
-            if np.isnan(yi):
-                continue
-                
-            if gradient_type == 'client':
-                y_max = max(abs(y.max()), abs(y.min())) if len(y) > 0 and not np.isnan(y).all() else 1
-                
-                if yi >= 0:
-                    intensity = min(yi / y_max, 1.0) if y_max > 0 else 0
-                    color = plt.cm.Blues(0.4 + intensity * 0.6)
-                else:
-                    intensity = min(abs(yi) / y_max, 1.0) if y_max > 0 else 0
-                    color = plt.cm.Reds(0.4 + intensity * 0.6)
-                marker_size = 120  # Slightly larger
-            else:
-                # Grey gradient for markers based on distance from zero
-                y_abs_max = max(abs(y.max()), abs(y.min())) if len(y) > 0 and not np.isnan(y).all() else 1
-                intensity = abs(yi) / y_abs_max if y_abs_max > 0 else 0
-                grey_value = 0.95 - (intensity * 0.85)
-                
-                color = (grey_value, grey_value, grey_value, 0.9)
-                marker_size = 100
-            
-            # Plot the marker with higher zorder to ensure it's on top
-            ax.scatter(xi, yi, color=color, s=marker_size, zorder=10, 
-                      edgecolors='white', linewidth=1.5, alpha=1.0, marker=marker_style)
-        
-        # Add invisible line for legend with appropriate style
-        if gradient_type == 'client':
-            legend_color = 'steelblue'
-        else:
-            legend_color = 'grey'
-        
-        ax.plot([], [], color=legend_color, linewidth=linewidth, label=label, 
-                alpha=0.8, linestyle='--' if line_style == 'median' else '-')
-    
-    def create_chart(self, client_id, client_id_col, measure_col, category_col, category_order,
-                    title=None, figsize=(16, 10)):
-        """
-        Create the main chart with client, average, and median lines
-        
-        Parameters:
-        - client_id: ID of the client to highlight
-        - client_id_col: Column name for client ID (e.g., 'client_id')
-        - measure_col: Column name for the measure (e.g., 'net_dv01')
-        - category_col: Column name for the category (e.g., 'tenor_bucket')
-        - category_order: List defining the order of categories (e.g., ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y'])
-        - title: Chart title (auto-generated if None)
-        - figsize: Figure size
-        
-        Returns:
-        - fig, ax: matplotlib figure and axis objects
-        """
-        
-        # Prepare data
-        chart_data = self.prepare_data(client_id, client_id_col, measure_col, category_col, category_order)
-        
-        # Create figure
         fig, ax = plt.subplots(figsize=figsize)
         
-        # Get x positions
-        x_pos = np.arange(len(chart_data))
+        y_positions = np.arange(len(data))
+        bar_height = 0.4
         
-        # Create gradient lines
-        self.create_gradient_line(x_pos, chart_data['client_value'].values, ax, 
-                                'client', 'average', f'Client {client_id}', linewidth=4)
+        # Determine x-axis limits for consistent positioning
+        all_values = np.concatenate([data['client_value'], data['average'], data['median']])
+        x_min = min(0, all_values.min() * 1.2)
+        x_max = max(0, all_values.max() * 1.2)
         
-        self.create_gradient_line(x_pos, chart_data['average'].values, ax, 
-                                'stats', 'average', 'Average (excl. zeros)', linewidth=3)
+        for i, (idx, row) in enumerate(data.iterrows()):
+            # Draw average bar (background) - light grey
+            avg_left = min(0, row['average'])
+            avg_width = abs(row['average'])
+            ax.barh(y_positions[i], avg_width, bar_height * 1.8, 
+                   left=avg_left, color='#E0E0E0', alpha=0.8, edgecolor='none')
+            
+            # Draw client value bar - blue/red based on positive/negative
+            client_color = 'dodgerblue' if row['client_value'] >= 0 else 'crimson'
+            client_left = min(0, row['client_value'])
+            client_width = abs(row['client_value'])
+            ax.barh(y_positions[i], client_width, bar_height,
+                   left=client_left, color=client_color, alpha=0.9, edgecolor='white', linewidth=1)
+            
+            # Draw median line - thick black line
+            ax.plot([row['median'], row['median']], 
+                   [y_positions[i] - bar_height * 0.9, y_positions[i] + bar_height * 0.9],
+                   color='black', linewidth=4, solid_capstyle='butt')
+            
+            # Add labels with smart positioning
+            # Client value label - at the end of the bar
+            if row['client_value'] != 0:
+                client_label_x = row['client_value']
+                # Add small offset based on direction
+                offset = x_max * 0.02 if row['client_value'] > 0 else -x_max * 0.02
+                ax.text(client_label_x + offset, y_positions[i], 
+                       self.format_number(row['client_value']),
+                       va='center', ha='left' if row['client_value'] > 0 else 'right',
+                       fontweight='bold', fontsize=14, color=client_color)
+            
+            # Average label - at the end of grey bar
+            if row['average'] != 0:
+                avg_label_x = row['average']
+                offset = x_max * 0.02 if row['average'] > 0 else -x_max * 0.02
+                ax.text(avg_label_x + offset, y_positions[i] - bar_height * 0.7, 
+                       self.format_number(row['average']),
+                       va='center', ha='left' if row['average'] > 0 else 'right',
+                       fontweight='bold', fontsize=12, color='grey', alpha=0.8)
+            
+            # Median label - above the median line
+            if row['median'] != 0:
+                ax.text(row['median'], y_positions[i] + bar_height * 1.2, 
+                       self.format_number(row['median']),
+                       va='bottom', ha='center',
+                       fontweight='bold', fontsize=12, color='black',
+                       bbox=dict(boxstyle="round,pad=0.2", facecolor='white', 
+                                edgecolor='none', alpha=0.9))
         
-        self.create_gradient_line(x_pos, chart_data['median'].values, ax, 
-                                'stats', 'median', 'Median (excl. zeros)', linewidth=3)
-        
-        # Customize the chart
+        # Customize axes
         if title is None:
-            title = f'Tenant Analysis: {measure_col} by {category_col}\nClient {client_id} vs Market Statistics'
-        
+            title = f'Bullet Chart: {measure_col} by {category_col}\nClient {client_id} vs Market Statistics'
         ax.set_title(title, fontsize=18, fontweight='bold', pad=25)
-        ax.set_xlabel(category_col.replace('_', ' ').title(), fontsize=14, fontweight='bold')
-        ax.set_ylabel(measure_col.replace('_', ' ').title(), fontsize=14, fontweight='bold')
+        ax.set_xlabel(measure_col.replace('_', ' ').title(), fontsize=14, fontweight='bold')
+        ax.set_ylabel(category_col.replace('_', ' ').title(), fontsize=14, fontweight='bold')
         
-        # Set x-axis labels using the category order
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(chart_data[category_col], rotation=45, ha='right')
+        # Set y-axis
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(data[category_col], fontsize=12)
+        ax.set_ylim(-0.5, len(data) - 0.5)
         
-        # Add horizontal line at y=0
-        ax.axhline(y=0, color='black', linestyle='-', alpha=0.3, linewidth=1)
+        # Set x-axis
+        ax.set_xlim(x_min, x_max)
         
-        # Remove grid and set transparent background
-        ax.grid(False)
-        ax.set_facecolor('none')
-        fig.patch.set_facecolor('white')
+        # Add vertical line at zero
+        ax.axvline(x=0, color='black', linestyle='-', alpha=0.3, linewidth=1)
         
         # Remove top and right spines
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         
-        # Add legend
-        ax.legend(loc='upper left', frameon=True, fancybox=True, shadow=True, 
-                 fontsize=12, framealpha=0.9)
+        # No grid
+        ax.grid(False)
+        ax.set_axisbelow(True)
         
-        # Add value labels with smart positioning
-        # First pass: collect all labels and their positions
-        all_labels = []
-        
-        for i, (category, client_val, avg_val, med_val) in enumerate(zip(
-            chart_data[category_col], 
-            chart_data['client_value'], 
-            chart_data['average'], 
-            chart_data['median']
-        )):
-            # Collect all values at this x position
-            if not np.isnan(client_val) and client_val != 0:
-                all_labels.append({
-                    'x': i,
-                    'y': client_val,
-                    'label': self.format_number(client_val),
-                    'color': 'dodgerblue' if client_val >= 0 else 'crimson',
-                    'type': 'client',
-                    'display_label': self.format_number(client_val)
-                })
-            
-            if not np.isnan(avg_val) and avg_val != 0:
-                all_labels.append({
-                    'x': i,
-                    'y': avg_val,
-                    'label': self.format_number(avg_val),
-                    'color': 'black',
-                    'type': 'average',
-                    'display_label': '● ' + self.format_number(avg_val)
-                })
-            
-            if not np.isnan(med_val) and med_val != 0:
-                all_labels.append({
-                    'x': i,
-                    'y': med_val,
-                    'label': self.format_number(med_val),
-                    'color': 'black',
-                    'type': 'median',
-                    'display_label': '■ ' + self.format_number(med_val)
-                })
-        
-        # Calculate y-axis range for offset calculations
-        y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
-        label_height = y_range * 0.04  # Approximate height of a label
-        min_spacing = label_height * 2.5  # Minimum spacing between labels
-        
-        # Sort labels by x position, then by y position
-        all_labels.sort(key=lambda l: (l['x'], l['y']))
-        
-        # Adjust positions to avoid overlaps
-        for i, label in enumerate(all_labels):
-            # Check for overlaps with previously placed labels at the same x position
-            same_x_labels = [l for l in all_labels[:i] if l['x'] == label['x']]
-            
-            if same_x_labels:
-                # Find the best position for this label
-                base_offset = y_range * 0.08
-                positions_to_try = [
-                    label['y'] + base_offset,  # Above
-                    label['y'] - base_offset,  # Below
-                    label['y'] + base_offset * 1.5,  # Further above
-                    label['y'] - base_offset * 1.5,  # Further below
-                    label['y'] + base_offset * 2.2,  # Even further above
-                    label['y'] - base_offset * 2.2,  # Even further below
-                ]
-                
-                best_position = label['y'] + base_offset
-                min_overlap = float('inf')
-                
-                for pos in positions_to_try:
-                    # Calculate total overlap with other labels
-                    total_overlap = 0
-                    for other in same_x_labels:
-                        if 'final_y' in other:
-                            distance = abs(pos - other['final_y'])
-                            if distance < min_spacing:
-                                total_overlap += (min_spacing - distance)
-                    
-                    if total_overlap < min_overlap:
-                        min_overlap = total_overlap
-                        best_position = pos
-                
-                label['final_y'] = best_position
-            else:
-                # First label at this x position
-                if label['y'] >= 0:
-                    label['final_y'] = label['y'] + y_range * 0.08
-                else:
-                    label['final_y'] = label['y'] - y_range * 0.08
-        
-        # Draw all labels
-        for label in all_labels:
-            final_y = label.get('final_y', label['y'] + y_range * 0.08)
-            
-            # Draw a thin guide line from the point to the label
-            ax.plot([label['x'], label['x']], [label['y'], final_y], 
-                   color='gray', linewidth=0.5, alpha=0.3, linestyle=':')
-            
-            # Draw the label
-            ax.text(label['x'], final_y, label['display_label'],
-                   ha='center', va='center', fontsize=14,
-                   color=label['color'], fontweight='bold',
-                   bbox=dict(boxstyle="round,pad=0.3", 
-                            facecolor='white', 
-                            edgecolor='none',
-                            alpha=0.95))
+        # Custom legend
+        client_patch = mpatches.Patch(color='dodgerblue', label=f'Client {client_id}')
+        avg_patch = mpatches.Patch(color='#E0E0E0', label='Average (excl. zeros)')
+        median_line = plt.Line2D([0], [0], color='black', linewidth=4, label='Median (excl. zeros)')
+        ax.legend(handles=[client_patch, avg_patch, median_line], 
+                 loc='best', frameon=True, fancybox=True, shadow=True)
         
         plt.tight_layout()
         return fig, ax
     
-    def get_data_summary(self, client_id, client_id_col, measure_col, category_col, category_order):
+    def create_bullet_chart_with_issuers(self, client_id, client_id_col, measure_col, category_col, 
+                                       category_order, issuer_col=None, title=None, figsize=(16, 10)):
         """
-        Get a summary of the data for the specified parameters
+        Create bullet chart(s) - if issuer_col is provided, create one chart per issuer
         
-        Returns:
-        - DataFrame with the prepared data
+        Parameters:
+        - issuer_col: Optional column name for issuer grouping
         """
-        return self.prepare_data(client_id, client_id_col, measure_col, category_col, category_order)
+        if issuer_col is None:
+            # No issuer column, create single chart as before
+            return self.create_bullet_chart(client_id, client_id_col, measure_col, 
+                                          category_col, category_order, title, figsize)
+        
+        # Get issuer data
+        issuer_data_list = self.prepare_data_with_issuer(client_id, client_id_col, measure_col, 
+                                                        category_col, category_order, issuer_col)
+        
+        # Create a figure with subplots for each issuer
+        n_issuers = len(issuer_data_list)
+        # Calculate figure height - ensure enough space for title, legend, and all subplots
+        subplot_height = 4  # Height per subplot
+        top_space = 3  # Space for title and legend
+        fig_height = top_space + (subplot_height * n_issuers)
+        
+        fig, axes = plt.subplots(n_issuers, 1, figsize=(figsize[0], fig_height), 
+                               squeeze=False, sharex=True)
+        
+        # Determine global x-axis limits for consistency
+        all_values = []
+        for issuer_info in issuer_data_list:
+            data = issuer_info['data']
+            all_values.extend(data['client_value'].values)
+            all_values.extend(data['average'].values)
+            all_values.extend(data['median'].values)
+        
+        x_min = min(0, min(all_values) * 1.2) if all_values else -100
+        x_max = max(0, max(all_values) * 1.2) if all_values else 100
+        
+        # Create bullet chart for each issuer
+        for idx, issuer_info in enumerate(issuer_data_list):
+            ax = axes[idx, 0]
+            data = issuer_info['data']
+            issuer_name = issuer_info['issuer']
+            issuer_number = issuer_info['number']
+            issuer_total = issuer_info['total']
+            
+            y_positions = np.arange(len(data))
+            bar_height = 0.4
+            
+            # Create issuer label with number and total - place it as a subplot title instead
+            issuer_label = f"{issuer_number}. {issuer_name} (Total: {self.format_number(issuer_total)})"
+            ax.set_title(issuer_label, fontsize=13, fontweight='bold', pad=10, 
+                        bbox=dict(boxstyle="round,pad=0.4", facecolor='lightgray', 
+                                 edgecolor='gray', alpha=0.9))
+            
+            for i, (_, row) in enumerate(data.iterrows()):
+                # Draw average bar (background) - light grey
+                avg_left = min(0, row['average'])
+                avg_width = abs(row['average'])
+                ax.barh(y_positions[i], avg_width, bar_height * 1.8, 
+                       left=avg_left, color='#E0E0E0', alpha=0.8, edgecolor='none')
+                
+                # Draw client value bar - blue/red based on positive/negative
+                client_color = 'dodgerblue' if row['client_value'] >= 0 else 'crimson'
+                client_left = min(0, row['client_value'])
+                client_width = abs(row['client_value'])
+                ax.barh(y_positions[i], client_width, bar_height,
+                       left=client_left, color=client_color, alpha=0.9, edgecolor='white', linewidth=1)
+                
+                # Draw median line - thick black line
+                ax.plot([row['median'], row['median']], 
+                       [y_positions[i] - bar_height * 0.9, y_positions[i] + bar_height * 0.9],
+                       color='black', linewidth=4, solid_capstyle='butt')
+                
+                # Add labels
+                # Client value label
+                if row['client_value'] != 0:
+                    client_label_x = row['client_value']
+                    offset = x_max * 0.02 if row['client_value'] > 0 else -x_max * 0.02
+                    ax.text(client_label_x + offset, y_positions[i], 
+                           self.format_number(row['client_value']),
+                           va='center', ha='left' if row['client_value'] > 0 else 'right',
+                           fontweight='bold', fontsize=12, color=client_color)
+                
+                # Average label
+                if row['average'] != 0:
+                    avg_label_x = row['average']
+                    offset = x_max * 0.02 if row['average'] > 0 else -x_max * 0.02
+                    ax.text(avg_label_x + offset, y_positions[i] - bar_height * 0.7, 
+                           self.format_number(row['average']),
+                           va='center', ha='left' if row['average'] > 0 else 'right',
+                           fontweight='bold', fontsize=10, color='grey', alpha=0.8)
+                
+                # Median label
+                if row['median'] != 0:
+                    ax.text(row['median'], y_positions[i] + bar_height * 1.2, 
+                           self.format_number(row['median']),
+                           va='bottom', ha='center',
+                           fontweight='bold', fontsize=10, color='black',
+                           bbox=dict(boxstyle="round,pad=0.2", facecolor='white', 
+                                    edgecolor='none', alpha=0.9))
+            
+            # Customize axes
+            ax.set_yticks(y_positions)
+            ax.set_yticklabels(data[category_col], fontsize=11)
+            ax.set_ylim(-0.5, len(data) - 0.5)  # Normal limits since title is outside
+            ax.set_xlim(x_min, x_max)
+            
+            # Add vertical line at zero
+            ax.axvline(x=0, color='black', linestyle='-', alpha=0.3, linewidth=1)
+            
+            # Remove spines
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            if idx < n_issuers - 1:  # Remove bottom spine except for last subplot
+                ax.spines['bottom'].set_visible(False)
+                ax.tick_params(bottom=False)
+            
+            # No grid
+            ax.grid(False)
+            
+            # Only add x-label to bottom subplot
+            if idx == n_issuers - 1:
+                ax.set_xlabel(measure_col.replace('_', ' ').title(), fontsize=14, fontweight='bold')
+        
+        # Overall title
+        if title is None:
+            title = f'Bullet Chart by Issuer: {measure_col} by {category_col}\nClient {client_id} vs Market Statistics'
+        fig.suptitle(title, fontsize=18, fontweight='bold', y=0.98)
+        
+        # Add legend at the top with better spacing - move it below the title
+        client_patch = mpatches.Patch(color='dodgerblue', label=f'Client {client_id}')
+        avg_patch = mpatches.Patch(color='#E0E0E0', label='Average (excl. zeros)')
+        median_line = plt.Line2D([0], [0], color='black', linewidth=4, label='Median (excl. zeros)')
+        fig.legend(handles=[client_patch, avg_patch, median_line], 
+                  loc='upper center', bbox_to_anchor=(0.5, 0.92), ncol=3,
+                  frameon=True, fancybox=True, shadow=True)
+        
+        plt.tight_layout(rect=[0, 0.02, 1, 0.88])  # Leave space at top for main title/legend and small space at bottom
+        plt.subplots_adjust(hspace=0.6)  # Even more space between subplots for subplot titles
+        return fig, axes
 
-# Sample data generator for testing
+
+# Generate sample data
 def generate_sample_data():
-    """Generate sample data with predefined values for consistent testing"""
-    
-    # Predefined test data for consistent results
+    """Use predefined test data with issuer information"""
     test_data = [
-        # Client_001
-        {'client_id': 'Client_001', 'tenor_bucket': '1M', 'net_dv01': 5200, 'other_measure': 3500},
-        {'client_id': 'Client_001', 'tenor_bucket': '3M', 'net_dv01': 4800, 'other_measure': 3200},
-        {'client_id': 'Client_001', 'tenor_bucket': '6M', 'net_dv01': 2100, 'other_measure': 1800},
-        {'client_id': 'Client_001', 'tenor_bucket': '1Y', 'net_dv01': -1200, 'other_measure': -800},
-        {'client_id': 'Client_001', 'tenor_bucket': '2Y', 'net_dv01': -3500, 'other_measure': -2200},
-        {'client_id': 'Client_001', 'tenor_bucket': '5Y', 'net_dv01': -5800, 'other_measure': -4100},
-        {'client_id': 'Client_001', 'tenor_bucket': '10Y', 'net_dv01': -8200, 'other_measure': -6500},
-        {'client_id': 'Client_001', 'tenor_bucket': '15Y', 'net_dv01': -9500, 'other_measure': -7800},
-        {'client_id': 'Client_001', 'tenor_bucket': '20Y', 'net_dv01': -10200, 'other_measure': -8500},
-        {'client_id': 'Client_001', 'tenor_bucket': '30Y', 'net_dv01': 0, 'other_measure': -9200},  # Zero value
+        # Client_001 - Issuer A
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '1M', 'net_dv01': 5200},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '3M', 'net_dv01': 4800},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '6M', 'net_dv01': 2100},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '1Y', 'net_dv01': -1200},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '2Y', 'net_dv01': -3500},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '5Y', 'net_dv01': -5800},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_A', 'tenor_bucket': '10Y', 'net_dv01': -8200},
         
-        # Client_002
-        {'client_id': 'Client_002', 'tenor_bucket': '1M', 'net_dv01': 4500, 'other_measure': 3000},
-        {'client_id': 'Client_002', 'tenor_bucket': '3M', 'net_dv01': 4200, 'other_measure': 2800},
-        {'client_id': 'Client_002', 'tenor_bucket': '6M', 'net_dv01': 1800, 'other_measure': 1500},
-        {'client_id': 'Client_002', 'tenor_bucket': '1Y', 'net_dv01': -800, 'other_measure': -500},
-        {'client_id': 'Client_002', 'tenor_bucket': '2Y', 'net_dv01': -2800, 'other_measure': -1800},
-        {'client_id': 'Client_002', 'tenor_bucket': '5Y', 'net_dv01': -4500, 'other_measure': -3200},
-        {'client_id': 'Client_002', 'tenor_bucket': '10Y', 'net_dv01': -6800, 'other_measure': -5200},
-        {'client_id': 'Client_002', 'tenor_bucket': '15Y', 'net_dv01': -8200, 'other_measure': -6500},
-        {'client_id': 'Client_002', 'tenor_bucket': '20Y', 'net_dv01': -9000, 'other_measure': -7200},
+        # Client_001 - Issuer B (larger total)
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '1M', 'net_dv01': 8200},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '3M', 'net_dv01': 7500},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '6M', 'net_dv01': 4100},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '1Y', 'net_dv01': 1200},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '2Y', 'net_dv01': -1500},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '5Y', 'net_dv01': -2800},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_B', 'tenor_bucket': '10Y', 'net_dv01': -4200},
         
-        # Client_003
-        {'client_id': 'Client_003', 'tenor_bucket': '1M', 'net_dv01': 6200, 'other_measure': 4200},
-        {'client_id': 'Client_003', 'tenor_bucket': '3M', 'net_dv01': 5800, 'other_measure': 3800},
-        {'client_id': 'Client_003', 'tenor_bucket': '6M', 'net_dv01': 3200, 'other_measure': 2500},
-        {'client_id': 'Client_003', 'tenor_bucket': '1Y', 'net_dv01': 0, 'other_measure': 0},  # Zero values
-        {'client_id': 'Client_003', 'tenor_bucket': '2Y', 'net_dv01': -2200, 'other_measure': -1500},
-        {'client_id': 'Client_003', 'tenor_bucket': '5Y', 'net_dv01': -3800, 'other_measure': -2800},
-        {'client_id': 'Client_003', 'tenor_bucket': '10Y', 'net_dv01': -5500, 'other_measure': -4200},
+        # Client_001 - Issuer C (smallest total)
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '1M', 'net_dv01': 1200},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '3M', 'net_dv01': 800},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '6M', 'net_dv01': -500},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '1Y', 'net_dv01': -1200},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '2Y', 'net_dv01': -2500},
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '5Y', 'net_dv01': 0},  # Zero value
+        {'client_id': 'Client_001', 'issuer': 'Issuer_C', 'tenor_bucket': '10Y', 'net_dv01': -3800},
         
-        # Client_004
-        {'client_id': 'Client_004', 'tenor_bucket': '1M', 'net_dv01': 3800, 'other_measure': 2500},
-        {'client_id': 'Client_004', 'tenor_bucket': '3M', 'net_dv01': 3500, 'other_measure': 2200},
-        {'client_id': 'Client_004', 'tenor_bucket': '6M', 'net_dv01': 1200, 'other_measure': 800},
-        {'client_id': 'Client_004', 'tenor_bucket': '1Y', 'net_dv01': -1500, 'other_measure': -1200},
-        {'client_id': 'Client_004', 'tenor_bucket': '2Y', 'net_dv01': -4200, 'other_measure': -3500},
-        {'client_id': 'Client_004', 'tenor_bucket': '5Y', 'net_dv01': -6500, 'other_measure': -5200},
-        {'client_id': 'Client_004', 'tenor_bucket': '10Y', 'net_dv01': -9200, 'other_measure': -7500},
-        {'client_id': 'Client_004', 'tenor_bucket': '15Y', 'net_dv01': -11000, 'other_measure': -9200},
+        # Client_002 - Issuer A
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '1M', 'net_dv01': 4500},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '3M', 'net_dv01': 4200},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '6M', 'net_dv01': 1800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '1Y', 'net_dv01': -800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '2Y', 'net_dv01': -2800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '5Y', 'net_dv01': -4500},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_A', 'tenor_bucket': '10Y', 'net_dv01': -6800},
         
-        # Client_005
-        {'client_id': 'Client_005', 'tenor_bucket': '1M', 'net_dv01': 7500, 'other_measure': 5500},
-        {'client_id': 'Client_005', 'tenor_bucket': '3M', 'net_dv01': 6800, 'other_measure': 4800},
-        {'client_id': 'Client_005', 'tenor_bucket': '6M', 'net_dv01': 4200, 'other_measure': 3500},
-        {'client_id': 'Client_005', 'tenor_bucket': '1Y', 'net_dv01': 1500, 'other_measure': 1200},
-        {'client_id': 'Client_005', 'tenor_bucket': '2Y', 'net_dv01': -1200, 'other_measure': -800},
-        {'client_id': 'Client_005', 'tenor_bucket': '5Y', 'net_dv01': -2800, 'other_measure': -2200},
-        {'client_id': 'Client_005', 'tenor_bucket': '10Y', 'net_dv01': -4500, 'other_measure': -3800},
-        {'client_id': 'Client_005', 'tenor_bucket': '15Y', 'net_dv01': -5800, 'other_measure': -4800},
-        {'client_id': 'Client_005', 'tenor_bucket': '20Y', 'net_dv01': -6500, 'other_measure': -5500},
-        {'client_id': 'Client_005', 'tenor_bucket': '30Y', 'net_dv01': -7200, 'other_measure': -6200},
+        # Client_002 - Issuer B
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '1M', 'net_dv01': 6500},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '3M', 'net_dv01': 5200},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '6M', 'net_dv01': 2800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '1Y', 'net_dv01': 800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '2Y', 'net_dv01': -1800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '5Y', 'net_dv01': -3500},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_B', 'tenor_bucket': '10Y', 'net_dv01': -5800},
+        
+        # Client_002 - Issuer C
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '1M', 'net_dv01': 2200},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '3M', 'net_dv01': 1800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '6M', 'net_dv01': 500},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '1Y', 'net_dv01': -800},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '2Y', 'net_dv01': -1500},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '5Y', 'net_dv01': -2200},
+        {'client_id': 'Client_002', 'issuer': 'Issuer_C', 'tenor_bucket': '10Y', 'net_dv01': 0},  # Zero value
+        
+        # Client_003 - Issuer A
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '1M', 'net_dv01': 6200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '3M', 'net_dv01': 5800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '6M', 'net_dv01': 3200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '1Y', 'net_dv01': 0},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '2Y', 'net_dv01': -2200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '5Y', 'net_dv01': -3800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_A', 'tenor_bucket': '10Y', 'net_dv01': -5500},
+        
+        # Client_003 - Issuer B
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '1M', 'net_dv01': 7200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '3M', 'net_dv01': 6800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '6M', 'net_dv01': 4200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '1Y', 'net_dv01': 1500},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '2Y', 'net_dv01': -1200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '5Y', 'net_dv01': -2800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_B', 'tenor_bucket': '10Y', 'net_dv01': -3500},
+        
+        # Client_003 - Issuer C
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '1M', 'net_dv01': 2200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '3M', 'net_dv01': 1800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '6M', 'net_dv01': 800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '1Y', 'net_dv01': -200},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '2Y', 'net_dv01': -1800},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '5Y', 'net_dv01': -2500},
+        {'client_id': 'Client_003', 'issuer': 'Issuer_C', 'tenor_bucket': '10Y', 'net_dv01': -3200},
+        
+        # Client_004 - Mixed issuers (for market statistics)
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '1M', 'net_dv01': 3800},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '3M', 'net_dv01': 3500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '6M', 'net_dv01': 1200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '1Y', 'net_dv01': -1500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '2Y', 'net_dv01': -4200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '5Y', 'net_dv01': -6500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_A', 'tenor_bucket': '10Y', 'net_dv01': -9200},
+        
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '1M', 'net_dv01': 9200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '3M', 'net_dv01': 8500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '6M', 'net_dv01': 5200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '1Y', 'net_dv01': 2500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '2Y', 'net_dv01': -500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '5Y', 'net_dv01': -2200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_B', 'tenor_bucket': '10Y', 'net_dv01': -3800},
+        
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '1M', 'net_dv01': 1500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '3M', 'net_dv01': 1200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '6M', 'net_dv01': 0},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '1Y', 'net_dv01': -500},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '2Y', 'net_dv01': -1200},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '5Y', 'net_dv01': -1800},
+        {'client_id': 'Client_004', 'issuer': 'Issuer_C', 'tenor_bucket': '10Y', 'net_dv01': -2500},
+        
+        # Client_005 - Different issuer mix
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '1M', 'net_dv01': 7500},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '3M', 'net_dv01': 6800},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '6M', 'net_dv01': 4200},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '1Y', 'net_dv01': 1500},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '2Y', 'net_dv01': -1200},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '5Y', 'net_dv01': -2800},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_A', 'tenor_bucket': '10Y', 'net_dv01': -4500},
+        
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '1M', 'net_dv01': 5500},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '3M', 'net_dv01': 4800},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '6M', 'net_dv01': 2200},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '1Y', 'net_dv01': -500},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '2Y', 'net_dv01': -2200},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '5Y', 'net_dv01': -3800},
+        {'client_id': 'Client_005', 'issuer': 'Issuer_B', 'tenor_bucket': '10Y', 'net_dv01': -5200},
     ]
     
     return pd.DataFrame(test_data)
+
 
 # Example usage
 if __name__ == "__main__":
     # Generate sample data
     sample_data = generate_sample_data()
     
-    print("Sample Data Overview:")
-    print(sample_data.head(15))
-    print(f"\nTotal records: {len(sample_data)}")
-    print(f"Clients: {sample_data['client_id'].nunique()}")
-    print(f"Tenor buckets: {sorted(sample_data['tenor_bucket'].unique())}")
-    print(f"\nZero values in net_dv01: {(sample_data['net_dv01'] == 0).sum()}")
-    
-    # Define the category order (this is the key new input!)
-    tenor_order = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y', '15Y', '20Y', '30Y']
-    
     # Initialize the module
-    analyzer = TenantAnalysisModule(sample_data)
+    bullet_chart = EnhancedBulletChart(sample_data)
     
-    # Create chart for a specific client
-    client_to_analyze = 'Client_001'
+    # Define parameters
+    client_id = 'Client_001'
+    client_id_col = 'client_id'
+    measure_col = 'net_dv01'
+    category_col = 'tenor_bucket'
+    category_order = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y']
     
-    print(f"\nCreating chart for {client_to_analyze} with tenor order: {tenor_order}")
-    
-    # Show data summary first
-    data_summary = analyzer.get_data_summary(
-        client_id=client_to_analyze,
-        client_id_col='client_id',  # NEW: specify the client ID column
-        measure_col='net_dv01',
-        category_col='tenor_bucket',
-        category_order=tenor_order
-    )
-    print("\nData Summary:")
-    print(data_summary)
-    
-    fig, ax = analyzer.create_chart(
-        client_id=client_to_analyze,
-        client_id_col='client_id',  # NEW: specify the client ID column
-        measure_col='net_dv01',
-        category_col='tenor_bucket',
-        category_order=tenor_order,
-        title=f'Net DV01 by Tenor: {client_to_analyze} vs Market'
-    )
-    
-    plt.show()
-    
-    # Show different category ordering with a different measure column
-    print("\n" + "="*50)
-    print("DIFFERENT MEASURE AND ORDERING EXAMPLE:")
+    print("Creating Enhanced Bullet Charts...")
     print("="*50)
     
-    # Try with different ordering and measure
-    custom_order = ['30Y', '20Y', '15Y', '10Y', '5Y', '2Y', '1Y', '6M', '3M', '1M']
-    
-    fig2, ax2 = analyzer.create_chart(
-        client_id='Client_005',
-        client_id_col='client_id',  # NEW: specify the client ID column
-        measure_col='other_measure',  # Different measure column
-        category_col='tenor_bucket',
-        category_order=custom_order,
-        title='Other Measure by Tenor (Reverse Order): Client_005 vs Market'
+    # Example 1: Without issuer (original functionality)
+    print("\n1. Standard Bullet Chart (without issuer):")
+    fig1, ax1 = bullet_chart.create_bullet_chart(
+        client_id, client_id_col, measure_col, category_col, category_order
     )
-    
     plt.show()
     
-    # Show usage instructions
-    print("\n" + "="*50)
-    print("UPDATED USAGE INSTRUCTIONS:")
-    print("="*50)
-    print("\n1. Data Structure:")
-    print("   - Each client has multiple rows (one per category segment)")
-    print("   - Columns are now configurable inputs")
-    print("   - Example:")
-    print("     client_id  |  tenor_bucket  |  net_dv01")
-    print("     Client_001 |  1M           |  5.2")
-    print("     Client_001 |  3M           |  3.8")
-    print("     Client_001 |  6M           |  0    <- Zero values excluded from avg/median")
-    print("     Client_002 |  1M           |  4.1")
-    print("     ...")
+    # Example 2: With issuer grouping
+    print("\n2. Bullet Chart with Issuer Grouping:")
+    print("   - Issuers are numbered by total measure value (1 = highest)")
+    print("   - Each issuer gets its own section")
+    fig2, axes2 = bullet_chart.create_bullet_chart_with_issuers(
+        client_id, client_id_col, measure_col, category_col, category_order,
+        issuer_col='issuer'  # Optional issuer column
+    )
+    plt.show()
     
-    print("\n2. Initialize and use:")
-    print("   analyzer = TenantAnalysisModule(your_dataframe)")
-    print("   ")
-    print("   # Define category order (IMPORTANT!)")
-    print("   tenor_order = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y']")
-    print("   ")
-    print("   analyzer.create_chart(")
+    print("\n" + "="*50)
+    print("ISSUER FEATURE DETAILS:")
+    print("="*50)
+    print("\n1. Issuer Ordering:")
+    print("   - Issuers are automatically ordered by ABSOLUTE total measure value")
+    print("   - Number 1 = highest absolute total (regardless of sign)")
+    print("   - Number 2 = second highest absolute total, etc.")
+    print("   - Example: -8000 ranks higher than +5000 (|−8000| > |5000|)")
+    
+    print("\n2. Visual Layout:")
+    print("   - Each issuer gets its own subplot")
+    print("   - Issuer label shows: number, name, and total value")
+    print("   - All subplots share the same x-axis scale")
+    
+    print("\n3. Usage with issuer:")
+    print("   fig, axes = bullet_chart.create_bullet_chart_with_issuers(")
     print("       client_id='Client_001',")
-    print("       client_id_col='client_id',      # NEW: configurable column")
-    print("       measure_col='net_dv01',         # Configurable measure column")
-    print("       category_col='tenor_bucket',    # Configurable category column")
-    print("       category_order=tenor_order      # This ensures proper ordering!")
+    print("       client_id_col='client_id',")
+    print("       measure_col='net_dv01',")
+    print("       category_col='tenor_bucket',")
+    print("       category_order=['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y'],")
+    print("       issuer_col='issuer'  # Optional - if provided, creates grouped chart")
     print("   )")
     
-    print("\n3. Statistics Calculation (UPDATED):")
-    print("   - Average: Mean of measure_col for each category across ALL clients")
-    print("             EXCLUDING ZERO VALUES")
-    print("   - Median: Median of measure_col for each category across ALL clients")
-    print("             EXCLUDING ZERO VALUES")
-    print("   - Client: Specific client's measure_col for each category")
-    print("             (including zeros if present)")
-    
-    print("\n4. Line Colors:")
-    print("   - Client line: Blue/red gradient (positive/negative values)")
-    print("   - Average line: Grey gradient (white center, black ends)")
-    print("   - Median line: Grey gradient (white center, black ends)")
-    
-    print("\n5. Key Changes in this version:")
-    print("   - Average and median now exclude zero values")
-    print("   - All column names are configurable inputs:")
-    print("     * client_id_col: specify which column contains client IDs")
-    print("     * measure_col: specify which column to analyze")
-    print("     * category_col: specify which column contains categories")
-    print("   - Legend labels updated to show 'excl. zeros'")
-    print("   - Zero value labels are not displayed on the chart")
+    print("\n4. Data Structure with Issuer:")
+    print("   client_id  | issuer    | tenor_bucket | net_dv01")
+    print("   Client_001 | Issuer_B  | 1M          | 8200")
+    print("   Client_001 | Issuer_B  | 3M          | 7500")
+    print("   Client_001 | Issuer_A  | 1M          | 5200")
+    print("   ...")
