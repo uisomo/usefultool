@@ -10,3 +10,22 @@ https://www.sec.gov/Archives/edgar/data/1048445/000156761918006283/0001567619-18
 13D / 13G (U.S. beneficial ownership >5%)
 
 Elliott often files 13D (active) and sometimes 13G (passive), usually with EIM, Elliott Associates, and Elliott International as co-filers.
+
+UK R-1: Notification of Major Holdings under FCA DTR 5.
+• UK-incorporated issuers: disclose at 3% and every 1% thereafter.
+• Non-UK issuers with UK “home state”: 5%, 10%, 15%, 20%, 25%, 30%, 50%, 75%.
+
+BP
+https://www.londonstockexchange.com/news-article/BP./holding-s-in-company/17000057?utm_source=chatgpt.com
+
+Amedeo Air Four Plus Limited — “Holding(s) in Company” (TR-1)
+Date: 18 Mar 2025
+Filing identifies Elliott Investment Management among the notifying parties/chain of control (see RNS text). 
+https://www.londonstockexchange.com/news-article/AA4/Holding-s-in-Company/16946593
+
+Doric Nimrod Air Three Limited — Annual report (derived from TR-1 notifications)
+Shows Elliott Investment Management, L.P. at 14.08% of voting rights (as of 31 Mar 2025), citing TR-1 notifications as the source. 
+London Stock Exchange RNS PDF
+
+How to FIlter By -> Company or Code (Issuer Name) ->Head Line Type=Holdings in Company -> Time Period (set from 2023 the oldest)
+https://www.londonstockexchange.com/news?tab=news-explorer&headlinetypes=&excludeheadlines=&sources=RNS&headlines=62&period=custom&beforedate=20250903&afterdate=20250106&namecode=BP
