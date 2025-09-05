@@ -29,3 +29,71 @@ London Stock Exchange RNS PDF
 
 How to FIlter By -> Company or Code (Issuer Name) ->Head Line Type=Holdings in Company -> Time Period (set from 2023 the oldest)
 https://www.londonstockexchange.com/news?tab=news-explorer&headlinetypes=&excludeheadlines=&sources=RNS&headlines=62&period=custom&beforedate=20250903&afterdate=20250106&namecode=BP
+Absolutely—here’s the latest, verifiable public data for Elliott International, L.P. and Elliott Associates, L.P., across 13F, 13D/G, and non-U.S. “substantial holding” (major holdings) reports.
+
+1) 13F (U.S. long positions & certain options)
+	•	The quarterly Form 13F is filed by Elliott Investment Management L.P. (EIM) and explicitly lists Elliott Associates, L.P. and Elliott International, L.P. as “Other Included Managers.” (So their U.S. reportable positions are consolidated in EIM’s filing.)  ￼
+	•	Latest filing: Quarter ended 2025-06-30, filed 2025-08-14. “Other Included Managers”:
+	1.	Elliott Associates, L.P. (13F No. 028-04724)
+	2.	Elliott International, L.P. (13F No. 028-16332).  ￼
+
+Selected large disclosed positions (from the 2025-Q2 13F information table)
+
+(values are the filing’s “VALUE (to nearest $)” and share counts as reported)
+	•	Triple Flag Precious Metals (TFPM) — $3,170,094,573; 133,815,727 sh. (long)  ￼
+	•	Phillips 66 (PSX) — $2,296,644,300; 19,251,000 sh. (long)  ￼
+	•	Suncor Energy (SU) — $1,972,521,460; 52,670,800 sh. (long)  ￼
+	•	Southwest Airlines (LUV) — $1,751,062,540; 53,978,500 sh. (long)  ￼
+	•	Pinterest (PINS) — $1,004,080,000; 28,000,000 sh. (long)  ￼
+	•	Index/ETF puts (hedges) — e.g., SPY put $1.33B (2.16M sh), QQQ put $1.10B (2.0M sh), iShares R1000 Value put $971M (5.0M sh), SMH put $279M (1.0M sh), XLI put $516M (3.5M sh).  ￼
+	•	Other longs shown include HPE, Liberty Broadband (C), Western Digital, Seadrill, Sensata, IBOXX HYG ETF, and more.  ￼
+
+Notes: 13F shows U.S.-listed long positions and certain options/convertibles; it does not include shorts, swaps, cash, many derivatives, or non-U.S. equities. Also, individual funds sometimes file a 13F-NT (notice) because their positions are reported by the manager (example: Elliott Associates filed a 13F-NT on 2025-08-14).  ￼
+
+Direct filing pages: cover & managers list; full information table.  ￼
+
+⸻
+
+2) 13D / 13G (U.S. beneficial ownership >5%)
+
+Elliott often files 13D (active) and sometimes 13G (passive), usually with EIM, Elliott Associates, and Elliott International as co-filers.
+
+Recent examples (illustrative):
+	•	Southwest Airlines (LUV) — initial 13D on 2024-07-29; multiple amendments, incl. Amendment No. 9 on 2025-08-18.  ￼
+	•	Uniti Group (UNIT) — 13D filed 2025-08-08, naming EIM as investment manager to Elliott Associates & Elliott International.  ￼
+
+How to pull a complete list quickly:
+• EDGAR Company Search → enter “Elliott Investment Management L.P.” (CIK 1791786) or “Elliott Associates, L.P.” or “Elliott International, L.P.” → filter “Beneficial ownership (Schedule 13D and 13G)”. Each filing shows % ownership, share counts, and any group members. (Example Uniti 13D cover language shows the relationship among EIM, Elliott Associates, and Elliott International.)  ￼
+
+⸻
+
+3) “Substantial holding” (Major holdings) reports outside the U.S.
+
+These are jurisdiction-specific (e.g., UK TR-1, EU Transparency Directive, Japan’s 大量保有報告書).
+
+UK (FCA DTR 5 / TR-1):
+	•	Amedeo Air Four Plus Ltd. — TR-1 on 2025-03-18 naming Elliott Investment Management, L.P. as the notifying party.  ￼
+	•	OneSavings Bank plc (now OSB Group) — TR-1 (2019) lists Elliott Capital Advisors L.P. and identifies Elliott International, L.P., Elliott Associates, L.P., The Liverpool Limited Partnership as shareholders; reported ~14.3% total at that time.  ￼
+	•	Historic example: Alliance Trust plc (2014)—TR-1 referencing Elliott International and Liverpool LP.  ￼
+
+Japan (EDINET 大量保有報告書):
+	•	Example filing (historical): Elliott Investment Management L.P. regarding ユニゾホールディングス (Unizo), 2020—Japanese “large shareholding” change report.  ￼
+
+Why you won’t see BP in 13F:
+Elliott’s widely-reported stake in BP plc (UK) shows up in UK disclosures/press—not in 13F (non-U.S. listing). See reports in Feb–May 2025 on the near-/above-5% stake and related activism.  ￼ ￼
+
+⸻
+
+Quick links (what you can open)
+	•	13F cover & info table (2025-Q2) — EIM filing with Elliott Associates & Elliott International as included managers; informationtable.xml contains every line item.  ￼
+	•	Elliott Associates 13F-NT (notice) — indicates positions are reported elsewhere (by EIM).  ￼
+	•	Sample 13D pages — Southwest (LUV) amendments; Uniti Group new 13D.  ￼
+	•	UK TR-1 examples — Amedeo Air Four Plus (2025); OSB (2019).  ￼
+	•	Japan EDINET example — Unizo (2020).  ￼
+
+⸻
+
+Want a spreadsheet?
+
+I can extract the full 13F table into a CSV (issuer, CUSIP, value, shares, type) and, if you’d like, add tabs for latest 13D/13G items and recent UK TR-1s for Elliott entities.
+
