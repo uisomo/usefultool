@@ -1,5 +1,5 @@
 https://chatgpt.com/s/t_6902b571baa4819191111a7de5670bc7
-
+https://www.smallake.kr/wp-content/uploads/2016/03/optliq.pdf
 Excellent and very deep question — this actually sits at the intersection of liquidity risk, market impact modeling, and derivative sensitivity aggregation, and while there’s no single unified “hard-to-replace derivative” framework, several academic and industry frameworks do exactly what you’re describing — they attempt to quantify how much “flow pressure” (measured in delta, DV01, vega, etc.) a market can absorb before prices move non-linearly.
 
 Let me break it down systematically for you 👇
