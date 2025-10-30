@@ -1,0 +1,79 @@
+Excellent — now let’s connect your simplified “liquidity-bucket” model to the traditional Merton structural model so you see which parts are equivalent, which are simplified, and what’s intentionally dropped.
+
+⸻
+
+🧩 1️⃣ The Traditional Merton Model (full form)
+
+In Merton’s world:
+\begin{aligned}
+A_t &= \text{asset value of the firm at time } t, \\
+D &= \text{debt due at time } T, \\
+r_f &= \text{risk-free rate}, \\
+\sigma_A &= \text{volatility of asset value.}
+\end{aligned}
+
+Default occurs if the firm’s asset value falls below its debt at maturity T:
+PD = N(-d_2), \quad \text{where} \quad d_2 = \frac{\ln(A_0 / D) + (r_f - 0.5\sigma_A^2)T}{\sigma_A \sqrt{T}}.
+
+⸻
+
+🪣 2️⃣ What your liquidity-buffer model does
+
+Your model swaps “firm value vs. debt” for a cash buffer vs. stress loss comparison:
+
+Merton term	Your equivalent	Intuitive meaning
+A_0 = current asset value	B = cash buffer	What you can use to pay margin
+D = debt due at time T	L_{0.999} = stress loss (worst 10-day margin call)	What you might have to pay
+\sigma_A = asset volatility	\sigma_h = volatility of 10-day loss	Size of daily market shocks
+r_f T term	≈ 0	Cash buffer isn’t earning or growing materially
+T	h = MPR in days	Horizon until liquidation
+PD = N(-d_2)	PD_h = 1 - \Phi\!\left(\dfrac{B - m h}{\sigma_h}\right)	Probability buffer < loss
+
+So the mathematical skeleton is identical:
+	•	A “distance-to-default” = (buffer − expected loss) / volatility.
+	•	PD = N(-DD).
+
+⸻
+
+⚙️ 3️⃣ Which parts are simplified or dropped
+
+Feature	Merton version	Liquidity-bucket version	Simplification
+Time horizon T	Continuous, can be 1 year	Fixed short MPR (e.g. 10 days)	Shortens horizon to match margin cycle
+Interest rate r_f	Appears in drift	Ignored	Buffer earns negligible return in 10 days
+Continuous asset diffusion	log-normal A_t	direct loss distribution on margin calls	Focuses only on tail P&L, skips firm balance-sheet dynamics
+Debt amortization	single payment at T	single margin call at 99.9 % loss	Same binary default condition
+Asset correlation structure	explicit in σₐ	absorbed in stress multiplier α	Uses empirical stress instead of modeled σ
+Equity market value link	E = f(A_0, D)	not used	No need for market-implied equity vol
+Calibration	implied from market spreads	empirical IA ↔ stress ratios	Quicker, internal calibration
+Risk horizon	long-term solvency	short-term liquidity	Structural idea, liquidity lens
+
+
+⸻
+
+🧠 4️⃣ Conceptual Summary
+	•	Merton asks: “Will the company’s total value cover its debt at year-end?”
+	•	You ask: “Will the fund’s cash buffer cover the margin call in the next 10 days?”
+
+Same geometry, different time scale and variable names.
+
+⸻
+
+🧮 5️⃣ The link in one line
+
+If we rewrite Merton’s d_2 ignoring drift and risk-free rate:
+d_2 \approx \frac{\ln(A_0 / D)}{\sigma_A \sqrt{T}}
+and compare to your simplified version:
+\text{DD}h = \frac{B}{L{0.999}/z_{0.999}}
+they are structurally identical — both measure how many “sigmas” away the default barrier is.
+
+⸻
+
+✅ In plain English
+
+You’ve shrunk Merton’s 1-year solvency world into a 10-day liquidity world.
+The “assets vs. debt” idea becomes “cash vs. margin call,” and you drop drift, interest, and balance-sheet growth terms.
+What remains is the pure distance-to-default logic that maps straight to a default probability.
+
+⸻
+
+Would you like me to show how to write both formulas side-by-side in Excel (so you can verify that your r-based PD and a stripped-down Merton PD produce the same numeric curve)?
