@@ -34,27 +34,31 @@ When the ratio is large (say, >5× daily turnover), the trade is “hard to repl
 	•	Extended versions apply to derivative sensitivities:
 \Delta P = \lambda \times \text{sensitivity imbalance (ΔDV01, ΔVega, etc.)}
 	•	Empirically, λ scales roughly with 1 / \sqrt{\text{daily volume}}.
-
+https://people.duke.edu/~qc2/BA532/1985%20EMA%20Kyle.pdf
 (b) Almgren–Chriss Framework (2000)
 	•	Originally for equity execution but extended to fixed-income and derivatives.
 	•	Defines temporary and permanent market impact as a function of trading rate q_t:
 \text{Impact cost} \propto \eta \cdot q_t + \frac{1}{2}\gamma q_t^2
 where η, γ calibrated from volume and volatility.
 	•	For derivatives, replace q_t with DV01/day or Vega/day.
-
+https://www.smallake.kr/wp-content/uploads/2016/03/optliq.pdf
 (c) FRTB Liquidity Horizon Framework (Basel III)
 	•	Each risk factor has a liquidity horizon (LH) (e.g., 10d for USD 10y rates, 20d for credit spread, 60d for equity vol, etc.).
 	•	This LH is implicitly a “hard-to-replace” metric: how long it would take to replace or hedge your position under stressed liquidity.
 	•	In FRTB IMCC:
 IMCC = \sqrt{\sum_{i} \left( \frac{LH_i}{10} \right) \times Var_i}
 	•	Derived from historical illiquidity during stress.
-
+https://www.bis.org/publ/qtrpdf/r_qt1912i.pdf
 (d) Market Impact Scaling Studies
 	•	Empirical studies by BIS, ECB, and dealers show:
 \text{Impact (bps)} \approx k \cdot \left( \frac{\text{Position Sensitivity}}{\text{Daily Sensitivity Volume}} \right)^{\alpha}
 with α typically between 0.4–0.6 (concave response).
 	•	E.g. “BIS Working Paper #983 (2022): Market impact and liquidity in derivatives markets”.
+https://www.bis.org/publ/bcbs265.pdf
+https://www.bis.org/publ/bcbs265.pdf
+https://www.bis.org/bcbs/publ/d457_inbrief.pdf
 
+https://www.bis.org/basel_framework/chapter/MAR/21.htm
 ⸻
 
 ⚙️ 3. How Practitioners Implement It
