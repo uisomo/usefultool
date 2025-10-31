@@ -147,8 +147,59 @@ Wujiang Lou (2024) provides the hedge-fund-specific liquidity framework; Merton 
 	3.	Theory: Direct structural mapping to Merton framework.
 	4.	Application: Convert PD → Rating → Haircut.
 	5.	Validation: Matches observed rating PDs.
-	6.	Outcome: Practical, transparent, consensus-credible model.
+	6.	Outcome: Practical, transparent, consensus-credible Excellent refinement — you’re absolutely right that Slide 3 (“Mapping to Merton Logic”) should go deeper into how the Merton model actually works (asset vs. debt, volatility → probability), then clearly restate how the same mechanism translates to hedge funds.
+
+Below is the expanded, presentation-ready version of that slide, fully grounded in the Liquidity Buffer Burnout paper and Merton (1974).
 
 ⸻
 
-Would you like me to add Japanese translations (bilingual style) underneath each English bullet so you can use it for both domestic and global audiences?
+⚙️ Slide 3 – Mapping to Merton Logic (Expanded)
+
+🧩 A. What the Original Merton Model Does
+	•	A firm’s assets follow a stochastic process A_t that fluctuates with market volatility σₐ.
+	•	It has debt D, a fixed obligation due at maturity T.
+	•	If at T the assets are worth less than the debt (A_T < D), the firm defaults.
+	•	Because both assets and debt move stochastically, we can quantify how often that happens in probabilistic terms.
+	•	The distance to default is
+d_2 = \frac{\ln(A_0 / D) + (r - 0.5σ_A^2) T}{σ_A √T}
+and
+PD = N(-d_2).
+	•	In plain English: the closer and more volatile the firm’s assets are relative to its debt, the higher the chance the debt will overtake the assets before maturity.
+
+⸻
+
+💧 B. Why This Applies to Hedge Funds
+
+As the Liquidity Buffer Burnout paper notes, a depleting margin account is mathematically equivalent to an asset process hitting a debt barrier — a first-passage (default) model in the sense of Merton (1974) and Black & Cox (1976) ￼.
+
+Merton Model	Hedge-Fund Liquidity Model	Intuition
+Assets Aₜ	Liquidity buffer B(t)	Cash available to meet margin calls
+Debt D	Cumulative margin calls C(t)	Cash demanded by brokers
+Default event: Aₜ < D	Default event: B(t) depleted → C(t) > B(0)	Buffer runs out
+Volatility σₐ	Volatility of loss σₕ (from stress or IA ratio)	Market uncertainty drives both
+Horizon T (1 yr)	MPR h (≈ 10 days)	Reaction time window
+
+Thus, the hedge-fund default probability can be written analogously as
+PD_h = 1 - Φ\!\left(\frac{B - m h}{σ_h}\right),
+the short-horizon version of Merton’s PD = N(-d_2).
+
+⸻
+
+🧠 C. Conceptual Restatement
+	•	Corporate default = “assets fall below debt” (solvency failure).
+	•	Hedge-fund default = “cash buffer falls below margin calls” (liquidity failure).
+	•	In both cases, we observe how often a volatile process (asset value or margin loss) crosses a barrier.
+	•	Because this frequency can be calculated from volatility and distance, we get a quantified default probability that naturally links to ratings and haircuts.
+
+⸻
+
+Speaker Notes
+
+References: Merton (1974) Journal of Finance; Wujiang Lou (2024) Liquidity Buffer Burnout, pp. 6–8 and Eq. (4) ￼.
+The paper explicitly equates margin-account depletion with the first-passage problem in structural credit theory, so the logic is not a leap but a short-horizon specialization of Merton’s framework.
+
+⸻
+
+Would you like me to now regenerate the full presentation text (Slides 1–8) with this enhanced version of Slide 3 inserted and formatted consistently (ready for import into Canva or PowerPoint)?
+
+Woul you like me to add Japanese translations (bilingual style) underneath each English bullet so you can use it for both domestic and global audiences?
