@@ -1,0 +1,154 @@
+もちろんです。以下に、PowerPointの全スライド内容（タイトル・本文・ノート欄・参考リンク）を完全テキスト化して掲載します。
+そのまま他のツール（Canva、Beautiful.ai、Google Slides など）にコピペして再構成できます。
+
+⸻
+
+🎯 Slide 1 – Problem Context: Why Hedge-Fund Default Modeling Needs a New Lens
+
+Main Points
+	•	Traditional models treat default as solvency failure (corporate-style).
+	•	Hedge funds usually default when margin calls cannot be met.
+	•	Dealer banks still rely on reduced-form credit curves → conceptual mismatch.
+	•	Goal: Connect margin-call mechanics → probability of default → haircut/rating.
+
+Speaker Notes
+
+Reference: Wujiang Lou (2024), “When Margin Call Burns Out Liquidity Buffer”, pp.5–15.
+Hedge fund defaults are driven by liquidity, not solvency. Traditional corporate-style default curves fail to capture this dynamic.
+
+⸻
+
+💧 Slide 2 – Core Idea: Liquidity-Buffer Framework
+
+Main Points
+	•	Liquidity buffer (B) = cash reserve used to meet margin calls.
+	•	When cumulative margin calls exceed B → fund defaults, broker unwinds.
+	•	Default probability = chance margin losses exceed buffer within MPR (Margin Period of Risk).
+	•	Creates a structural (not reduced-form) model: default arises from the dynamics of the portfolio’s margin losses.
+
+Speaker Notes
+
+Reference: Wujiang Lou (2024), pp.6–7.
+This is analogous to a “cash bucket” that empties when the market moves against the fund.
+
+⸻
+
+⚙️ Slide 3 – Mapping to Merton Logic
+
+Main Points
+
+Merton Term	Liquidity-Buffer Equivalent	Meaning
+Firm assets A	Liquidity buffer B	Cash available for margin calls
+Debt D	Stress loss L_{0.999}	Margin call requirement
+σₐ	σₕ	Volatility of 10-day margin losses
+rT	≈ 0	Drift negligible over 10-day horizon
+PD = N(–d₂)	PD = 1 – Φ((B–mh)/σₕ)	Distance-to-default logic identical
+
+	•	Merton: Default = assets < debt.
+	•	Liquidity model: Default = buffer < stress loss.
+	•	Simplified: drop drift, short horizon (10 days = MPR).
+	•	Same geometry, different domain.
+
+Speaker Notes
+
+Reference: Merton (1974) and Lou (2024) §§2–4.
+The same “distance-to-default” math applies — just swap assets → cash buffer.
+
+⸻
+
+📊 Slide 4 – From Simulation to Ratings
+
+Main Points
+	•	Simulate margin-call losses; count how often loss > buffer → PD curve.
+	•	Map PDs to rating buckets using S&P default rate data.
+	•	Example mappings:
+	•	15% buffer & 16% haircut → BB+ rating.
+	•	25% buffer → A– rating.
+	•	Provides an internal rating proxy without relying on external credit curves.
+
+Speaker Notes
+
+Reference: Wujiang Lou (2024), Table 1, pp.13–15.
+The model builds a lookup: liquidity buffer × haircut ↔ implied credit rating.
+
+⸻
+
+🔍 Slide 5 – Why the Mapping Is Legitimate
+
+Main Points
+	1.	Same structural foundation as Merton: both use distance-to-default.
+	2.	Only the trigger differs: liquidity failure vs. solvency failure.
+	3.	Information alignment: banks know margin portfolio & buffer, but not fund balance sheet.
+	4.	Calibrated via observable ratios: IA ↔ stress loss multiplier (α).
+	5.	Empirically validated: outputs align with S&P’s 1-year PDs per rating bucket.
+
+Speaker Notes
+
+Reference: Lou (2024), p.18; Merton (1974).
+The mapping is mathematically coherent and data-driven, not an assumption leap.
+
+⸻
+
+🧮 Slide 6 – Practical Extensions
+
+Main Points
+	•	PD → Haircut: set haircut to achieve target “no-loss probability” over MPR.
+	•	Per-broker buffers improve transparency and counterparty risk separation.
+	•	Works for P2P lenders, exchanges, CCPs lacking full credit analysis.
+	•	Add Wrong-Way Risk: inflate α when portfolio & collateral co-move.
+
+Speaker Notes
+
+Reference: Lou (2024), pp.17–18.
+This enables smaller players and clearing houses to assess hedge fund risk independently.
+
+⸻
+
+🧠 Slide 7 – Consensus-Building Logic
+
+Main Points
+	•	The model extends, not replaces, structural default theory.
+	•	Default = “cash buffer < margin call,” analogous to “assets < debt.”
+	•	The time horizon shortens (10-day liquidity window).
+	•	Therefore, linking IA ↔ stress loss ↔ buffer ↔ PD is theoretically consistent and operationally transparent.
+
+Speaker Notes
+
+Reference: Lou (2024), §§2–5.
+The Merton logic remains intact; only the trigger condition changes to liquidity exhaustion.
+
+⸻
+
+📚 Slide 8 – References
+
+Citations
+	1.	Wujiang Lou (2024)
+“When Margin Call Burns Out Liquidity Buffer – Hedge Fund Ratings and Securities Financing Haircuts.”
+ResearchGate preprint.
+🔗 https://www.researchgate.net/publication/380552143_When_Margin_Call_Burns_Out_Liquidity_Buffer
+	2.	R.C. Merton (1974)
+“On the Pricing of Corporate Debt: The Risk Structure of Interest Rates.”
+Journal of Finance.
+🔗 https://doi.org/10.2307/1924187
+	3.	S&P Global Ratings (2022)
+“Default, Transition, and Recovery 1981–2021.”
+🔗 https://www.spglobal.com/ratings/en/research/articles/220215-default-transition-and-recovery-1981-2021
+
+Speaker Notes
+
+All equations, tables, and rating mappings trace directly to these three primary sources.
+Wujiang Lou (2024) provides the hedge-fund-specific liquidity framework; Merton (1974) provides structural grounding; S&P (2022) provides empirical rating PDs.
+
+⸻
+
+✅ Summary of Logical Flow (for presenter)
+	1.	Problem: Corporate-style credit models don’t match hedge-fund liquidity defaults.
+	2.	Model: Liquidity buffer exhaustion = endogenous default trigger.
+	3.	Theory: Direct structural mapping to Merton framework.
+	4.	Application: Convert PD → Rating → Haircut.
+	5.	Validation: Matches observed rating PDs.
+	6.	Outcome: Practical, transparent, consensus-credible model.
+
+⸻
+
+Would you like me to add Japanese translations (bilingual style) underneath each English bullet so you can use it for both domestic and global audiences?
