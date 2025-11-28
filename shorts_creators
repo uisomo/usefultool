@@ -1,0 +1,345 @@
+“””
+YouTube Shorts Creator
+Combines text with zoom-in effects, random sound effects,
+text-to-speech (Japanese/English), and background music.
+
+Requirements:
+pip install moviepy gtts pydub numpy pillow –break-system-packages
+
+Usage:
+python youtube_shorts_creator.py
+“””
+
+import os
+import random
+from pathlib import Path
+from typing import Literal
+
+# Video/Audio processing (moviepy v2.x)
+
+from moviepy import (
+TextClip, CompositeVideoClip, ColorClip, AudioFileClip,
+CompositeAudioClip, concatenate_videoclips, concatenate_audioclips
+)
+
+# Text-to-speech
+
+from gtts import gTTS
+
+# Audio manipulation
+
+from pydub import AudioSegment
+from pydub.generators import Sine, WhiteNoise
+
+import numpy as np
+
+class YouTubeShortsCreator:
+“”“Create YouTube Shorts with text, effects, and audio.”””
+
+```
+def __init__(
+    self,
+    output_dir: str = "output",
+    video_size: tuple = (1080, 1920),  # 9:16 aspect ratio for Shorts
+    fps: int = 30,
+    bg_color: tuple = (20, 20, 30),  # Dark background
+):
+    self.output_dir = Path(output_dir)
+    self.output_dir.mkdir(exist_ok=True)
+    
+    self.video_size = video_size
+    self.fps = fps
+    self.bg_color = bg_color
+    
+    # Create temp directories
+    self.temp_dir = self.output_dir / "temp"
+    self.temp_dir.mkdir(exist_ok=True)
+    
+    self.sfx_dir = self.output_dir / "sound_effects"
+    self.sfx_dir.mkdir(exist_ok=True)
+    
+    # Generate sound effects if not present
+    self._generate_sound_effects()
+
+def _generate_sound_effects(self):
+    """Generate simple sound effects using pydub."""
+    sfx_files = list(self.sfx_dir.glob("*.mp3"))
+    
+    if len(sfx_files) >= 3:
+        return  # Already have sound effects
+    
+    print("Generating sound effects...")
+    
+    # Effect 1: Rising tone (whoosh-like)
+    rising = Sine(200).to_audio_segment(duration=200)
+    for freq in range(250, 800, 50):
+        rising = rising + Sine(freq).to_audio_segment(duration=20)
+    rising = rising.fade_in(50).fade_out(100)
+    rising.export(self.sfx_dir / "sfx_rising.mp3", format="mp3")
+    
+    # Effect 2: Pop sound
+    pop = Sine(600).to_audio_segment(duration=50)
+    pop = pop + Sine(400).to_audio_segment(duration=30)
+    pop = pop.fade_out(30)
+    pop.export(self.sfx_dir / "sfx_pop.mp3", format="mp3")
+    
+    # Effect 3: Ding sound
+    ding = Sine(880).to_audio_segment(duration=300)
+    ding = ding.fade_out(200)
+    ding.export(self.sfx_dir / "sfx_ding.mp3", format="mp3")
+    
+    # Effect 4: Swoosh (white noise based)
+    swoosh = WhiteNoise().to_audio_segment(duration=200)
+    swoosh = swoosh.fade_in(50).fade_out(100) - 15  # Reduce volume
+    swoosh.export(self.sfx_dir / "sfx_swoosh.mp3", format="mp3")
+    
+    print(f"Generated 4 sound effects in {self.sfx_dir}")
+
+def get_random_sfx(self) -> str:
+    """Get a random sound effect file path."""
+    sfx_files = list(self.sfx_dir.glob("*.mp3"))
+    if not sfx_files:
+        raise FileNotFoundError("No sound effects found!")
+    return str(random.choice(sfx_files))
+
+def text_to_speech(
+    self,
+    text: str,
+    language: Literal["ja", "en"] = "ja",
+    filename: str = None
+) -> str | None:
+    """
+    Convert text to speech and save as audio file.
+    Returns None if TTS fails (network issues, etc.)
+    """
+    if filename is None:
+        filename = f"tts_{hash(text)}.mp3"
+    
+    output_path = self.temp_dir / filename
+    
+    try:
+        tts = gTTS(text=text, lang=language, slow=False)
+        tts.save(str(output_path))
+        return str(output_path)
+    except Exception as e:
+        print(f"    ⚠ TTS failed for '{text[:20]}...': {e}")
+        print("    → Continuing without voice for this segment")
+        return None
+
+def create_zoom_in_clip(
+    self,
+    text: str,
+    duration: float = 3.0,
+    font_size: int = 80,
+    font_color: str = "white",
+    zoom_start: float = 0.5,
+    zoom_end: float = 1.2,
+    font: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+) -> CompositeVideoClip:
+    """Create a text clip with zoom-in animation effect."""
+    
+    # Create background
+    bg = ColorClip(
+        size=self.video_size,
+        color=self.bg_color,
+        duration=duration
+    )
+    
+    # Create text clip
+    txt_clip = TextClip(
+        text=text,
+        font_size=font_size,
+        color=font_color,
+        font=font,
+        size=(self.video_size[0] - 100, None),  # Max width with padding
+        method='caption',
+        text_align='center',
+        duration=duration
+    )
+    
+    # Center the text
+    txt_clip = txt_clip.with_position('center')
+    
+    # Apply zoom effect using resized method with lambda
+    def zoom_func(t):
+        progress = t / duration
+        # Ease-out effect for smoother animation
+        eased_progress = 1 - (1 - progress) ** 2
+        scale = zoom_start + (zoom_end - zoom_start) * eased_progress
+        return scale
+    
+    zoomed_txt = txt_clip.resized(zoom_func)
+    zoomed_txt = zoomed_txt.with_position('center')
+    
+    # Composite
+    final = CompositeVideoClip([bg, zoomed_txt], size=self.video_size)
+    
+    return final
+
+def create_short(
+    self,
+    texts: list[str],
+    language: Literal["ja", "en"] = "ja",
+    bgm_path: str = None,
+    bgm_volume: float = 0.3,
+    output_filename: str = "youtube_short.mp4",
+    text_duration: float = 3.0,
+    include_tts: bool = True
+) -> str:
+    """
+    Create a complete YouTube Short video.
+    
+    Args:
+        texts: List of text strings to display
+        language: Language for TTS ("ja" for Japanese, "en" for English)
+        bgm_path: Path to background music file (optional)
+        bgm_volume: Volume for background music (0.0 to 1.0)
+        output_filename: Output video filename
+        text_duration: Duration for each text clip in seconds
+        include_tts: Whether to include text-to-speech audio
+    
+    Returns:
+        Path to the created video file
+    """
+    print(f"Creating YouTube Short with {len(texts)} text segments...")
+    
+    clips = []
+    audio_clips = []
+    current_time = 0
+    
+    for i, text in enumerate(texts):
+        print(f"  Processing text {i+1}/{len(texts)}: {text[:30]}...")
+        
+        # Create video clip with zoom effect
+        # Use Japanese font for Japanese, DejaVu for English
+        if language == "ja":
+            font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+        else:
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        
+        video_clip = self.create_zoom_in_clip(
+            text=text,
+            duration=text_duration,
+            font_size=70 if language == "ja" else 80,
+            font=font_path
+        )
+        clips.append(video_clip)
+        
+        # Add sound effect at the start of each text
+        sfx_path = self.get_random_sfx()
+        sfx = AudioFileClip(sfx_path).with_volume_scaled(0.5)
+        sfx = sfx.with_start(current_time)
+        audio_clips.append(sfx)
+        
+        # Add TTS if enabled
+        if include_tts:
+            tts_path = self.text_to_speech(text, language, f"tts_{i}.mp3")
+            if tts_path:  # Only add if TTS succeeded
+                tts_audio = AudioFileClip(tts_path)
+                # Start TTS slightly after the zoom begins
+                tts_audio = tts_audio.with_start(current_time + 0.3)
+                audio_clips.append(tts_audio)
+        
+        current_time += text_duration
+    
+    # Concatenate all video clips
+    final_video = concatenate_videoclips(clips, method="compose")
+    total_duration = final_video.duration
+    
+    # Add background music if provided
+    if bgm_path and os.path.exists(bgm_path):
+        print("  Adding background music...")
+        bgm = AudioFileClip(bgm_path)
+        
+        # Loop BGM if shorter than video
+        if bgm.duration < total_duration:
+            loops_needed = int(total_duration / bgm.duration) + 1
+            bgm_segments = [bgm] * loops_needed
+            bgm = concatenate_audioclips(bgm_segments)
+        
+        # Trim to video length and adjust volume
+        bgm = bgm.subclipped(0, total_duration).with_volume_scaled(bgm_volume)
+        audio_clips.insert(0, bgm)  # Add BGM as first layer
+    
+    # Composite all audio
+    if audio_clips:
+        final_audio = CompositeAudioClip(audio_clips)
+        final_video = final_video.with_audio(final_audio)
+    
+    # Export
+    output_path = self.output_dir / output_filename
+    print(f"  Exporting video to {output_path}...")
+    
+    final_video.write_videofile(
+        str(output_path),
+        fps=self.fps,
+        codec='libx264',
+        audio_codec='aac',
+        threads=4,
+        preset='medium'
+    )
+    
+    # Cleanup
+    final_video.close()
+    for clip in clips:
+        clip.close()
+    
+    print(f"✓ Video created: {output_path}")
+    return str(output_path)
+```
+
+def main():
+“”“Example usage of YouTubeShortsCreator.”””
+
+```
+# Sample texts (Japanese and English examples)
+japanese_texts = [
+    "今日のポイント！",
+    "集中力を高める方法",
+    "1. 環境を整える",
+    "2. 目標を明確に",
+    "3. 休憩を取る",
+    "実践してみよう！"
+]
+
+english_texts = [
+    "Today's Tip!",
+    "How to Boost Focus",
+    "1. Set Your Environment",
+    "2. Define Clear Goals",
+    "3. Take Regular Breaks",
+    "Try It Now!"
+]
+
+# Create the shorts creator
+creator = YouTubeShortsCreator(output_dir="output")
+
+# Create Japanese version
+print("\n=== Creating Japanese Version ===")
+creator.create_short(
+    texts=japanese_texts,
+    language="ja",
+    bgm_path=None,  # Add your BGM path here: "path/to/bgm.mp3"
+    bgm_volume=0.2,
+    output_filename="short_japanese.mp4",
+    text_duration=2.5,
+    include_tts=True
+)
+
+# Create English version
+print("\n=== Creating English Version ===")
+creator.create_short(
+    texts=english_texts,
+    language="en",
+    bgm_path=None,  # Add your BGM path here: "path/to/bgm.mp3"
+    bgm_volume=0.2,
+    output_filename="short_english.mp4",
+    text_duration=2.5,
+    include_tts=True
+)
+
+print("\n✓ All videos created successfully!")
+```
+
+if **name** == “**main**”:
+main()
