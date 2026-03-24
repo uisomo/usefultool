@@ -3,8 +3,15 @@
 Monte Carlo Credit Risk Simulation - Excel Prototype Generator
 Generates an Excel file with formula-based Monte Carlo simulation (no VBA).
 
-Uses a multi-factor Gaussian copula model:
-  Z_i = sqrt(w_r)*F_region + sqrt(w_s)*F_sector + sqrt(w_h)*F_hnwi + sqrt(1-w_r-w_s-w_h)*eps_i
+Uses a multi-factor Gaussian copula model with per-obligor factor loadings:
+  Z_i = sqrt(w_r)*F_region + sqrt(w_size)*F_size + sqrt(w_s)*F_sector
+        + sqrt(w_h)*F_hnwi + sqrt(w_idio)*eps_i
+
+Factor weights are looked up per-category from the FactorLoadings sheet:
+  - Region:  US, Europe, Asia ex-Japan, Japan
+  - Size:    Large, SME
+  - Sector:  Finance, Manufacturing, Tech, Real Estate
+  - HNWI:    Yes, No
 
 Obligor defaults when Z_i < NORM.S.INV(PD_i)
 """
@@ -21,27 +28,36 @@ N_BUCKETS = 25  # histogram buckets
 
 # ── Sample Obligor Data ───────────────────────────────────────────────────
 OBLIGORS = [
-    # (ID, Name, Region, Sector, HNWI, PD%, EAD_millions, LGD%)
-    ("OBL-001", "Alpha Industries",       "Asia",     "Manufacturing", "No",  1.5, 120, 45),
-    ("OBL-002", "Beta Financial Group",    "Asia",     "Finance",       "No",  0.8, 200, 40),
-    ("OBL-003", "Gamma Tech Solutions",    "Asia",     "Tech",          "No",  2.0,  80, 50),
-    ("OBL-004", "Delta Real Estate",       "Asia",     "Real Estate",   "Yes", 3.0, 150, 55),
-    ("OBL-005", "Epsilon Holdings",        "Asia",     "Finance",       "Yes", 1.2, 180, 40),
-    ("OBL-006", "Zeta Automobil AG",       "Europe",   "Manufacturing", "No",  1.0, 160, 45),
-    ("OBL-007", "Eta Banque SA",           "Europe",   "Finance",       "No",  0.5, 250, 35),
-    ("OBL-008", "Theta PropCo Ltd",        "Europe",   "Real Estate",   "No",  2.5, 100, 55),
-    ("OBL-009", "Iota Digital GmbH",       "Europe",   "Tech",          "Yes", 1.8,  90, 50),
-    ("OBL-010", "Kappa Energie SA",        "Europe",   "Manufacturing", "No",  0.7, 140, 45),
-    ("OBL-011", "Lambda Capital Corp",     "Americas", "Finance",       "No",  0.6, 220, 38),
-    ("OBL-012", "Mu Semiconductor Inc",    "Americas", "Tech",          "No",  2.2,  70, 50),
-    ("OBL-013", "Nu Development LLC",      "Americas", "Real Estate",   "Yes", 3.5,  95, 58),
-    ("OBL-014", "Xi Wealth Partners",      "Americas", "Finance",       "Yes", 1.0, 170, 40),
-    ("OBL-015", "Omicron MFG Corp",        "Americas", "Manufacturing", "Yes", 4.0,  60, 48),
+    # (ID, Name, Region, Size, Sector, HNWI, PD%, EAD_millions, LGD%)
+    ("OBL-001", "Alpha Industries",       "Japan",        "Large", "Manufacturing", "No",  1.5, 120, 45),
+    ("OBL-002", "Beta Financial Group",    "Japan",        "Large", "Finance",       "No",  0.8, 200, 40),
+    ("OBL-003", "Gamma Tech Solutions",    "Asia ex-Japan","SME",   "Tech",          "No",  2.0,  80, 50),
+    ("OBL-004", "Delta Real Estate",       "Asia ex-Japan","SME",   "Real Estate",   "Yes", 3.0, 150, 55),
+    ("OBL-005", "Epsilon Holdings",        "Japan",        "Large", "Finance",       "Yes", 1.2, 180, 40),
+    ("OBL-006", "Zeta Automobil AG",       "Europe",       "Large", "Manufacturing", "No",  1.0, 160, 45),
+    ("OBL-007", "Eta Banque SA",           "Europe",       "Large", "Finance",       "No",  0.5, 250, 35),
+    ("OBL-008", "Theta PropCo Ltd",        "Europe",       "SME",   "Real Estate",   "No",  2.5, 100, 55),
+    ("OBL-009", "Iota Digital GmbH",       "Europe",       "SME",   "Tech",          "Yes", 1.8,  90, 50),
+    ("OBL-010", "Kappa Energie SA",        "Europe",       "Large", "Manufacturing", "No",  0.7, 140, 45),
+    ("OBL-011", "Lambda Capital Corp",     "US",           "Large", "Finance",       "No",  0.6, 220, 38),
+    ("OBL-012", "Mu Semiconductor Inc",    "US",           "SME",   "Tech",          "No",  2.2,  70, 50),
+    ("OBL-013", "Nu Development LLC",      "US",           "SME",   "Real Estate",   "Yes", 3.5,  95, 58),
+    ("OBL-014", "Xi Wealth Partners",      "US",           "Large", "Finance",       "Yes", 1.0, 170, 40),
+    ("OBL-015", "Omicron MFG Corp",        "US",           "SME",   "Manufacturing", "Yes", 4.0,  60, 48),
 ]
 
-REGIONS = ["Asia", "Europe", "Americas"]
+REGIONS = ["US", "Europe", "Asia ex-Japan", "Japan"]
+SIZES = ["Large", "SME"]
 SECTORS = ["Finance", "Manufacturing", "Tech", "Real Estate"]
 HNWI_VALS = ["No", "Yes"]
+
+# ── Default Factor Loadings (intra-group correlations) ────────────────────
+# These define how much of each obligor's risk comes from the shared factor.
+# Two obligors sharing a factor have pairwise correlation = w_i + w_j + ...
+REGION_LOADINGS = {"US": 0.25, "Europe": 0.20, "Asia ex-Japan": 0.15, "Japan": 0.10}
+SIZE_LOADINGS = {"Large": 0.12, "SME": 0.06}
+SECTOR_LOADINGS = {"Finance": 0.10, "Manufacturing": 0.08, "Tech": 0.08, "Real Estate": 0.06}
+HNWI_LOADINGS = {"No": 0.00, "Yes": 0.05}
 
 # ── Styles ─────────────────────────────────────────────────────────────────
 HEADER_FONT = Font(name="Calibri", bold=True, size=11, color="FFFFFF")
@@ -89,10 +105,7 @@ def create_parameters_sheet(wb):
 
     params = [
         ("Number of Simulations", N_SIMS,  "Trials (press F9 to re-simulate)"),
-        ("Region Factor Weight (w_r)", 0.15, "Correlation from regional factor"),
-        ("Sector Factor Weight (w_s)", 0.10, "Correlation from sector factor"),
-        ("HNWI Factor Weight (w_h)",   0.05, "Correlation from HNWI factor"),
-        ("VaR Confidence Level",       0.99, "For Value-at-Risk calculation"),
+        ("VaR Confidence Level",  0.99,    "For Value-at-Risk calculation"),
     ]
     for i, (name, val, desc) in enumerate(params):
         r = 4 + i
@@ -107,31 +120,22 @@ def create_parameters_sheet(wb):
         for col in range(1, 4):
             ws.cell(row=r, column=col).border = THIN_BORDER
 
-    # Computed: idiosyncratic weight
-    ws.cell(row=9, column=1, value="Idiosyncratic Weight (1-w_r-w_s-w_h)").fill = PARAM_FILL
-    c = ws.cell(row=9, column=2)
-    c.value = "=1-B5-B6-B7"
-    c.number_format = "0.00%"
-    c.fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
-    ws.cell(row=9, column=3, value="Remaining weight for idiosyncratic risk")
-    for col in range(1, 4):
-        ws.cell(row=9, column=col).border = THIN_BORDER
-
     # Instructions
-    ws["A11"] = "How to Use"
-    ws["A11"].font = SUBTITLE_FONT
+    ws["A7"] = "How to Use"
+    ws["A7"].font = SUBTITLE_FONT
     instructions = [
-        "1. Review/edit obligor data in the 'Obligors' sheet",
-        "2. Adjust factor weights above to change correlation structure",
-        "3. Press F9 (or Ctrl+Alt+F9) to recalculate = run a new simulation",
-        "4. View results in the 'Results' sheet",
-        "5. The 'Factors' sheet shows systematic factor draws per trial",
-        "6. The 'Simulation' sheet shows the correlated latent variables",
-        "7. The 'Defaults' sheet shows binary default indicators (1=default)",
-        "8. The 'Losses' sheet shows per-obligor loss amounts",
+        "1. Edit per-category correlations in the 'FactorLoadings' sheet",
+        "2. Review/edit obligor data in the 'Obligors' sheet",
+        "3. Weights (w_region, w_size, w_sector, w_hnwi) are auto-computed via VLOOKUP",
+        "4. Press F9 (or Ctrl+Alt+F9) to recalculate = run a new simulation",
+        "5. View results in the 'Results' sheet",
+        "6. The 'Factors' sheet shows systematic factor draws per trial",
+        "7. The 'Simulation' sheet shows the correlated latent variables",
+        "8. The 'Defaults' sheet shows binary default indicators (1=default)",
+        "9. The 'Losses' sheet shows per-obligor loss amounts",
     ]
     for i, text in enumerate(instructions):
-        ws.cell(row=12 + i, column=1, value=text)
+        ws.cell(row=8 + i, column=1, value=text)
 
     ws.column_dimensions["A"].width = 38
     ws.column_dimensions["B"].width = 14
@@ -140,65 +144,185 @@ def create_parameters_sheet(wb):
     return ws
 
 
+def create_factor_loadings_sheet(wb):
+    """Sheet 2: Per-category factor loadings (editable correlation inputs).
+
+    Layout:
+      Region table:  A3:B7   (header + 4 regions)
+      Size table:    A10:B12  (header + 2 sizes)
+      Sector table:  A15:B19  (header + 4 sectors)
+      HNWI table:    A22:B24  (header + 2 values)
+    """
+    ws = wb.create_sheet("FactorLoadings")
+    ws.sheet_properties.tabColor = "7030A0"
+
+    ws["A1"] = "Factor Loadings (Intra-Group Correlations)"
+    ws["A1"].font = TITLE_FONT
+    ws.merge_cells("A1:C1")
+
+    # Helper to write a lookup table
+    def write_table(start_row, title, data_dict, desc):
+        ws.cell(row=start_row, column=1, value=title).font = SUBTITLE_FONT
+        ws.cell(row=start_row, column=3, value=desc)
+        hr = start_row + 1
+        ws.cell(row=hr, column=1, value="Category")
+        ws.cell(row=hr, column=2, value="Weight")
+        style_header_row(ws, hr, 2)
+        for i, (key, val) in enumerate(data_dict.items()):
+            r = hr + 1 + i
+            ws.cell(row=r, column=1, value=key).fill = PARAM_FILL
+            ws.cell(row=r, column=1).border = THIN_BORDER
+            c = ws.cell(row=r, column=2, value=val)
+            c.number_format = "0.00%"
+            c.fill = INPUT_FILL
+            c.border = THIN_BORDER
+        return hr + 1  # first data row (for VLOOKUP references)
+
+    # Row positions for each table (needed by VLOOKUP in Obligors sheet)
+    # Region: rows 3-7 (header=3, data=4-7)
+    write_table(3, "Region", REGION_LOADINGS,
+                "Correlation contribution from shared region factor")
+    # Size: rows 10-12
+    write_table(10, "Company Size", SIZE_LOADINGS,
+                "Correlation contribution from shared size factor")
+    # Sector: rows 15-19
+    write_table(15, "Sector", SECTOR_LOADINGS,
+                "Correlation contribution from shared sector factor")
+    # HNWI: rows 22-24
+    write_table(22, "HNWI Status", HNWI_LOADINGS,
+                "Correlation contribution from shared HNWI factor")
+
+    # Explanation
+    ws["A27"] = "How to Read"
+    ws["A27"].font = SUBTITLE_FONT
+    explanations = [
+        "Each weight represents the share of an obligor's risk variance explained by that factor.",
+        "Two obligors sharing a factor contribute that weight to their pairwise correlation.",
+        "Example: Two Large US Finance companies → ρ = w_US + w_Large + w_Finance = 0.25+0.12+0.10 = 0.47",
+        "Constraint: For each obligor, sum of all weights must be < 1 (remainder = idiosyncratic risk).",
+    ]
+    for i, text in enumerate(explanations):
+        ws.cell(row=28 + i, column=1, value=text)
+
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["C"].width = 55
+
+    return ws
+
+
+# ── FactorLoadings sheet cell references ──────────────────────────────────
+# These constants map to the VLOOKUP ranges in the FactorLoadings sheet.
+# Region table: data in A5:B8 (4 rows), Size: A12:B13, Sector: A17:B20, HNWI: A24:B25
+FL_REGION_RANGE = "FactorLoadings!$A$5:$B$8"
+FL_SIZE_RANGE = "FactorLoadings!$A$12:$B$13"
+FL_SECTOR_RANGE = "FactorLoadings!$A$17:$B$20"
+FL_HNWI_RANGE = "FactorLoadings!$A$24:$B$25"
+
+
 def create_obligors_sheet(wb):
-    """Sheet 2: Obligor portfolio data."""
+    """Sheet 3: Obligor portfolio data with per-obligor factor weights.
+
+    Columns:
+      A: ID, B: Name, C: Region, D: Size, E: Sector, F: HNWI,
+      G: PD(%), H: EAD(M), I: LGD(%),
+      J: w_r (VLOOKUP), K: w_size (VLOOKUP), L: w_s (VLOOKUP), M: w_h (VLOOKUP),
+      N: w_idio (=1-J-K-L-M), O: Default Threshold
+    """
     ws = wb.create_sheet("Obligors")
     ws.sheet_properties.tabColor = "548235"
 
-    headers = ["ID", "Name", "Region", "Sector", "HNWI", "PD (%)", "EAD (M)", "LGD (%)", "Default Threshold"]
+    headers = [
+        "ID", "Name", "Region", "Size", "Sector", "HNWI",
+        "PD (%)", "EAD (M)", "LGD (%)",
+        "w_region", "w_size", "w_sector", "w_hnwi", "w_idio",
+        "Default Threshold",
+    ]
     ws.append(headers)
     style_header_row(ws, 1, len(headers))
 
     for i, ob in enumerate(OBLIGORS):
         r = i + 2
-        ws.cell(row=r, column=1, value=ob[0])
-        ws.cell(row=r, column=2, value=ob[1])
-        ws.cell(row=r, column=3, value=ob[2])
-        ws.cell(row=r, column=4, value=ob[3])
-        ws.cell(row=r, column=5, value=ob[4])
-        c_pd = ws.cell(row=r, column=6, value=ob[5] / 100)
+        # ob = (ID, Name, Region, Size, Sector, HNWI, PD%, EAD, LGD%)
+        ws.cell(row=r, column=1, value=ob[0])   # ID
+        ws.cell(row=r, column=2, value=ob[1])   # Name
+        ws.cell(row=r, column=3, value=ob[2])   # Region
+        ws.cell(row=r, column=4, value=ob[3])   # Size
+        ws.cell(row=r, column=5, value=ob[4])   # Sector
+        ws.cell(row=r, column=6, value=ob[5])   # HNWI
+
+        c_pd = ws.cell(row=r, column=7, value=ob[6] / 100)
         c_pd.number_format = "0.00%"
-        c_ead = ws.cell(row=r, column=7, value=ob[6])
+        c_ead = ws.cell(row=r, column=8, value=ob[7])
         c_ead.number_format = "#,##0"
-        c_lgd = ws.cell(row=r, column=8, value=ob[7] / 100)
+        c_lgd = ws.cell(row=r, column=9, value=ob[8] / 100)
         c_lgd.number_format = "0.00%"
-        # Default threshold = NORM.S.INV(PD)
-        c_thr = ws.cell(row=r, column=9)
-        c_thr.value = f"=NORM.S.INV(F{r})"
+
+        # Factor weights via VLOOKUP from FactorLoadings sheet
+        # J: w_region
+        c_wr = ws.cell(row=r, column=10)
+        c_wr.value = f"=VLOOKUP(C{r},{FL_REGION_RANGE},2,FALSE)"
+        c_wr.number_format = "0.00%"
+        # K: w_size
+        c_ws = ws.cell(row=r, column=11)
+        c_ws.value = f"=VLOOKUP(D{r},{FL_SIZE_RANGE},2,FALSE)"
+        c_ws.number_format = "0.00%"
+        # L: w_sector
+        c_wse = ws.cell(row=r, column=12)
+        c_wse.value = f"=VLOOKUP(E{r},{FL_SECTOR_RANGE},2,FALSE)"
+        c_wse.number_format = "0.00%"
+        # M: w_hnwi
+        c_wh = ws.cell(row=r, column=13)
+        c_wh.value = f"=VLOOKUP(F{r},{FL_HNWI_RANGE},2,FALSE)"
+        c_wh.number_format = "0.00%"
+        # N: w_idio = 1 - w_r - w_size - w_s - w_h
+        c_wi = ws.cell(row=r, column=14)
+        c_wi.value = f"=1-J{r}-K{r}-L{r}-M{r}"
+        c_wi.number_format = "0.00%"
+        # O: Default threshold = NORM.S.INV(PD)
+        c_thr = ws.cell(row=r, column=15)
+        c_thr.value = f"=NORM.S.INV(G{r})"
         c_thr.number_format = "0.0000"
 
-        for col in range(1, 10):
+        for col in range(1, 16):
             style_data_cell(ws.cell(row=r, column=col))
 
     # Total exposure
     r_total = len(OBLIGORS) + 3
-    ws.cell(row=r_total, column=6, value="Total EAD:").font = Font(bold=True)
-    ws.cell(row=r_total, column=7, value=f"=SUM(G2:G{len(OBLIGORS)+1})")
-    ws.cell(row=r_total, column=7).number_format = "#,##0"
-    ws.cell(row=r_total, column=7).font = Font(bold=True)
+    ws.cell(row=r_total, column=7, value="Total EAD:").font = Font(bold=True)
+    ws.cell(row=r_total, column=8, value=f"=SUM(H2:H{len(OBLIGORS)+1})")
+    ws.cell(row=r_total, column=8).number_format = "#,##0"
+    ws.cell(row=r_total, column=8).font = Font(bold=True)
 
     ws.column_dimensions["A"].width = 10
     ws.column_dimensions["B"].width = 24
-    ws.column_dimensions["C"].width = 12
-    ws.column_dimensions["D"].width = 16
-    ws.column_dimensions["E"].width = 8
-    ws.column_dimensions["F"].width = 10
-    ws.column_dimensions["G"].width = 12
-    ws.column_dimensions["H"].width = 10
-    ws.column_dimensions["I"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 8
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 8
+    ws.column_dimensions["G"].width = 10
+    ws.column_dimensions["H"].width = 12
+    ws.column_dimensions["I"].width = 10
+    ws.column_dimensions["J"].width = 10
+    ws.column_dimensions["K"].width = 10
+    ws.column_dimensions["L"].width = 10
+    ws.column_dimensions["M"].width = 10
+    ws.column_dimensions["N"].width = 10
+    ws.column_dimensions["O"].width = 16
 
     return ws
 
 
 def create_factors_sheet(wb):
-    """Sheet 3: Systematic factor draws (NORM.S.INV(RAND())) for each trial.
+    """Sheet 4: Systematic factor draws (NORM.S.INV(RAND())) for each trial.
 
     Layout:
       Row 1: headers (Trial 1, Trial 2, ...)
       Col A: Factor labels
-      Rows 2-4: Region factors (Asia, Europe, Americas)
-      Rows 5-8: Sector factors (Finance, Manufacturing, Tech, Real Estate)
-      Rows 9-10: HNWI factors (No, Yes)
+      Rows 2-5:  Region factors (US, Europe, Asia ex-Japan, Japan)
+      Rows 6-7:  Size factors (Large, SME)
+      Rows 8-11: Sector factors (Finance, Manufacturing, Tech, Real Estate)
+      Rows 12-13: HNWI factors (No, Yes)
     """
     ws = wb.create_sheet("Factors")
     ws.sheet_properties.tabColor = "BF8F00"
@@ -211,6 +335,8 @@ def create_factors_sheet(wb):
     factor_labels = []
     for r in REGIONS:
         factor_labels.append(f"Region: {r}")
+    for s in SIZES:
+        factor_labels.append(f"Size: {s}")
     for s in SECTORS:
         factor_labels.append(f"Sector: {s}")
     for h in HNWI_VALS:
@@ -239,34 +365,34 @@ def create_factors_sheet(wb):
             cell.border = THIN_BORDER
 
     ws.column_dimensions["A"].width = 22
-    # Keep trial columns narrow
     for j in range(1, N_SIMS + 1):
         ws.column_dimensions[get_column_letter(j + 1)].width = 8
 
-    # Add a lookup helper: map factor names to row numbers (in column A of a helper area)
-    # We'll use the row positions directly in formulas instead.
-    # Region rows: 2,3,4  (Asia=2, Europe=3, Americas=4)
-    # Sector rows: 5,6,7,8 (Finance=5, Manufacturing=6, Tech=7, Real Estate=8)
-    # HNWI rows: 9,10 (No=9, Yes=10)
+    # Factor row map (for reference in Simulation sheet):
+    # Region: rows 2-5  (US=2, Europe=3, Asia ex-Japan=4, Japan=5)
+    # Size:   rows 6-7  (Large=6, SME=7)
+    # Sector: rows 8-11 (Finance=8, Manufacturing=9, Tech=10, Real Estate=11)
+    # HNWI:   rows 12-13 (No=12, Yes=13)
 
     return ws
 
 
-def _factor_row_for_obligor(region, sector, hnwi):
+def _factor_row_for_obligor(region, size, sector, hnwi):
     """Return the row numbers in the Factors sheet for this obligor's factors."""
     region_row = 2 + REGIONS.index(region)
-    sector_row = 2 + len(REGIONS) + SECTORS.index(sector)
-    hnwi_row = 2 + len(REGIONS) + len(SECTORS) + HNWI_VALS.index(hnwi)
-    return region_row, sector_row, hnwi_row
+    size_row = 2 + len(REGIONS) + SIZES.index(size)
+    sector_row = 2 + len(REGIONS) + len(SIZES) + SECTORS.index(sector)
+    hnwi_row = 2 + len(REGIONS) + len(SIZES) + len(SECTORS) + HNWI_VALS.index(hnwi)
+    return region_row, size_row, sector_row, hnwi_row
 
 
 def create_simulation_sheet(wb):
-    """Sheet 4: Correlated latent variable Z for each obligor x trial.
+    """Sheet 5: Correlated latent variable Z for each obligor x trial.
 
-    Z_i = sqrt(w_r)*F_region + sqrt(w_s)*F_sector + sqrt(w_h)*F_hnwi
-          + sqrt(1-w_r-w_s-w_h)*NORM.S.INV(RAND())
+    Z_i = sqrt(w_r)*F_region + sqrt(w_size)*F_size + sqrt(w_s)*F_sector
+          + sqrt(w_h)*F_hnwi + sqrt(w_idio)*NORM.S.INV(RAND())
 
-    Parameters!B5 = w_r, B6 = w_s, B7 = w_h
+    Per-obligor weights come from Obligors sheet columns J-N.
     """
     ws = wb.create_sheet("Simulation")
     ws.sheet_properties.tabColor = "C55A11"
@@ -290,26 +416,37 @@ def create_simulation_sheet(wb):
         c.fill = HEADER_FILL
         c.alignment = Alignment(horizontal="center")
 
-    # Formulas
+    # Formulas - now using per-obligor weights from Obligors sheet
     for i, ob in enumerate(OBLIGORS):
         r_row = i + 2
-        region_row, sector_row, hnwi_row = _factor_row_for_obligor(ob[2], ob[3], ob[4])
+        # ob = (ID, Name, Region, Size, Sector, HNWI, ...)
+        region_row, size_row, sector_row, hnwi_row = _factor_row_for_obligor(
+            ob[2], ob[3], ob[4], ob[5]
+        )
+
+        # Obligors sheet weight columns (absolute row reference per obligor):
+        # J=w_region, K=w_size, L=w_sector, M=w_hnwi, N=w_idio
+        wr = f"Obligors!$J${r_row}"
+        wz = f"Obligors!$K${r_row}"
+        ws_ref = f"Obligors!$L${r_row}"
+        wh = f"Obligors!$M${r_row}"
+        wi = f"Obligors!$N${r_row}"
 
         for j in range(1, N_SIMS + 1):
             col = j + 1
             col_letter = get_column_letter(col)
 
-            # Reference to factor sheet cells for this trial
             f_region = f"Factors!{col_letter}{region_row}"
+            f_size = f"Factors!{col_letter}{size_row}"
             f_sector = f"Factors!{col_letter}{sector_row}"
             f_hnwi = f"Factors!{col_letter}{hnwi_row}"
 
-            # Z = sqrt(w_r)*F_r + sqrt(w_s)*F_s + sqrt(w_h)*F_h + sqrt(1-w_r-w_s-w_h)*eps
             formula = (
-                f"=SQRT(Parameters!$B$5)*{f_region}"
-                f"+SQRT(Parameters!$B$6)*{f_sector}"
-                f"+SQRT(Parameters!$B$7)*{f_hnwi}"
-                f"+SQRT(Parameters!$B$9)*NORM.S.INV(RAND())"
+                f"=SQRT({wr})*{f_region}"
+                f"+SQRT({wz})*{f_size}"
+                f"+SQRT({ws_ref})*{f_sector}"
+                f"+SQRT({wh})*{f_hnwi}"
+                f"+SQRT({wi})*NORM.S.INV(RAND())"
             )
             cell = ws.cell(row=r_row, column=col, value=formula)
             cell.number_format = "0.0000"
@@ -345,8 +482,8 @@ def create_defaults_sheet(wb):
 
         for i in range(len(OBLIGORS)):
             r = i + 2
-            # Default if Z < threshold
-            formula = f"=IF(Simulation!{col_letter}{r}<Obligors!$I${r},1,0)"
+            # Default if Z < threshold (column O in Obligors)
+            formula = f"=IF(Simulation!{col_letter}{r}<Obligors!$O${r},1,0)"
             cell = ws.cell(row=r, column=col, value=formula)
             cell.number_format = "0"
 
@@ -384,8 +521,8 @@ def create_losses_sheet(wb):
 
         for i in range(len(OBLIGORS)):
             r = i + 2
-            # Loss = Default_indicator * EAD * LGD
-            formula = f"=Defaults!{col_letter}{r}*Obligors!$G${r}*Obligors!$H${r}"
+            # Loss = Default_indicator * EAD * LGD (columns H and I in Obligors)
+            formula = f"=Defaults!{col_letter}{r}*Obligors!$H${r}*Obligors!$I${r}"
             cell = ws.cell(row=r, column=col, value=formula)
             cell.number_format = "#,##0.0"
 
@@ -421,15 +558,15 @@ def create_results_sheet(wb):
     stats = [
         ("Expected Loss (Mean)", f"=AVERAGE(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row})", "#,##0.0"),
         ("Loss Std Dev", f"=STDEV(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row})", "#,##0.0"),
-        ("VaR (99%)", f"=PERCENTILE(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row},Parameters!B8)", "#,##0.0"),
+        ("VaR (99%)", f"=PERCENTILE(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row},Parameters!B5)", "#,##0.0"),
         ("Expected Shortfall (CVaR)",
-         f"=AVERAGEIF(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row},\">=\"&B6)",
+         f"=AVERAGEIF(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row},\">=\"&B7)",
          "#,##0.0"),
         ("Max Loss", f"=MAX(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row})", "#,##0.0"),
         ("Min Loss", f"=MIN(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row})", "#,##0.0"),
         ("Median Loss", f"=MEDIAN(Losses!B{loss_total_row}:{last_col_letter}{loss_total_row})", "#,##0.0"),
-        ("Total Portfolio EAD", f"=Obligors!G{len(OBLIGORS)+3}", "#,##0"),
-        ("Expected Loss Rate", f"=B4/B11", "0.00%"),
+        ("Total Portfolio EAD", f"=Obligors!H{len(OBLIGORS)+3}", "#,##0"),
+        ("Expected Loss Rate", f"=B5/B12", "0.00%"),
     ]
 
     ws["A4"] = "Metric"
@@ -585,6 +722,9 @@ def main():
     print("Creating Parameters sheet...")
     create_parameters_sheet(wb)
 
+    print("Creating FactorLoadings sheet...")
+    create_factor_loadings_sheet(wb)
+
     print("Creating Obligors sheet...")
     create_obligors_sheet(wb)
 
@@ -608,7 +748,7 @@ def main():
     print(f"\nDone! Saved to: {output_path}")
     print(f"  - {len(OBLIGORS)} obligors x {N_SIMS} trials")
     print("  - Open in Excel and press F9 to recalculate (new simulation)")
-    print("  - Adjust weights in 'Parameters' sheet to change correlation structure")
+    print("  - Adjust per-category correlations in the 'FactorLoadings' sheet")
 
 
 if __name__ == "__main__":
