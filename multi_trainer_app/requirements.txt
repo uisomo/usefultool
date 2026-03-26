@@ -1,0 +1,23 @@
+# Multi-Trainer App Dependencies
+
+# LLM API
+openai>=1.0.0
+python-dotenv>=1.0.0
+
+# Speech Recognition
+SpeechRecognition>=3.10.0
+# openai-whisper  # Optional: for local Whisper transcription
+
+# Text-to-Speech (install at least one)
+edge-tts>=6.1.0          # Primary: Microsoft Edge TTS (free, high quality)
+# gTTS>=2.3.0            # Fallback: Google TTS
+# pyttsx3>=2.90          # Fallback: Offline TTS
+
+# Video/Audio Processing
+moviepy>=2.0.0
+Pillow>=10.0.0
+numpy>=1.24.0
+pydub>=0.25.1
+
+# Audio (system dependency: portaudio for PyAudio)
+PyAudio>=0.2.13
