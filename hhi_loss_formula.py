@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-HHI vs Loss Rate - Excel Formula-Based Monte Carlo Generator
+HHI vs Loss Rate - Excel with Pre-computed Simulation + Formulas
 
-Generates an Excel file where ALL calculations use Excel formulas:
-  - User edits obligor weights in the Weights sheet
-  - HHI is auto-computed: =SUMPRODUCT(weights^2)
-  - Defaults are simulated: =IF(RAND()<PD, 1, 0)
-  - Loss stats use AVERAGE, STDEV, PERCENTILE formulas
-  - Press F9 to re-simulate
+Generates an Excel file where:
+  - Simulation data is pre-computed by Python (numpy) and written as values
+  - Results sheet uses Excel formulas (AVERAGE, STDEV, PERCENTILE) on the data
+  - Weights sheet uses Excel formulas (SUMPRODUCT for HHI, SUM for totals)
+  - Charts auto-render from formula results
+
+The user can:
+  1. Open in Excel and immediately see results (pre-computed data)
+  2. Edit weights, then F9 to see Results formulas update
+  3. Understand every formula used
 
 Conditions: correlation=0, PD=AA (0.03%), LGD=100%, 10 obligors
 """
 
+import numpy as np
 import openpyxl
-from openpyxl.chart import LineChart, BarChart, Reference
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -31,7 +36,6 @@ TITLE_FONT = Font(name="Calibri", bold=True, size=14, color="2F5496")
 SUBTITLE_FONT = Font(name="Calibri", bold=True, size=11, color="2F5496")
 PARAM_FILL = PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
 INPUT_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-GOOD_FILL = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
 WARN_FILL = PatternFill(start_color="FCE4EC", end_color="FCE4EC", fill_type="solid")
 THIN_BORDER = Border(
     left=Side(style="thin"), right=Side(style="thin"),
@@ -66,13 +70,22 @@ SCENARIOS = [
 ]
 
 
+def run_monte_carlo(weights, pd=DEFAULT_PD, lgd=DEFAULT_LGD, n_sims=N_SIMS):
+    """Run Monte Carlo in numpy. Returns (defaults_matrix, loss_array)."""
+    w = np.array(weights) / 100.0
+    defaults = (np.random.random((n_sims, len(w))) < pd).astype(int)
+    losses = (defaults * w) @ np.ones(len(w)) * lgd  # = sum(D_i * w_i) * LGD
+    # More precisely: losses = defaults @ w * lgd
+    losses = defaults @ w * lgd
+    return defaults, losses
+
+
 def create_parameters_sheet(wb):
-    """Sheet 1: Editable parameters (PD, LGD, N_SIMS)."""
     ws = wb.active
     ws.title = "Parameters"
     ws.sheet_properties.tabColor = "2F5496"
 
-    ws["A1"] = "HHI vs 損失率 Monte Carlo分析（数式版）"
+    ws["A1"] = "HHI vs 損失率 Monte Carlo分析"
     ws["A1"].font = TITLE_FONT
     ws.merge_cells("A1:D1")
 
@@ -82,9 +95,9 @@ def create_parameters_sheet(wb):
     style_header_row(ws, 3, 3)
 
     params = [
-        ("PD (デフォルト確率)", DEFAULT_PD, "0.00%", "AA格の年間PD（編集可）"),
-        ("LGD (損失率)", DEFAULT_LGD, "0%", "デフォルト時の損失割合（編集可）"),
-        ("シミュレーション回数", N_SIMS, "#,##0", f"試行回数（{N_SIMS}列）"),
+        ("PD (デフォルト確率)", DEFAULT_PD, "0.00%", "AA格の年間PD"),
+        ("LGD (損失率)", DEFAULT_LGD, "0%", "デフォルト時の損失割合"),
+        ("シミュレーション回数", N_SIMS, "#,##0", f"試行回数 ({N_SIMS}回)"),
         ("債務者数", N_OBLIGORS, "#,##0", "ポートフォリオの企業数"),
     ]
     for i, (name, val, fmt, desc) in enumerate(params):
@@ -97,25 +110,24 @@ def create_parameters_sheet(wb):
         for col in range(1, 4):
             ws.cell(row=r, column=col).border = THIN_BORDER
 
-    ws["A9"] = "使い方"
+    ws["A9"] = "構造"
     ws["A9"].font = SUBTITLE_FONT
-    instructions = [
-        "1. Weightsシートで各シナリオの債務者ウェイトを編集",
-        "2. PD・LGDはこのシートのB4・B5で変更可能",
-        "3. F9キー（またはCtrl+Alt+F9）で再シミュレーション",
-        "4. Resultsシートで各シナリオのHHI・損失指標・チャートを確認",
-        "5. 全ての計算はExcel数式 — VBAなし",
+    notes = [
+        "Weightsシート: 各シナリオのウェイト + HHI計算式 (=SUMPRODUCT)",
+        "Sim_N シート: Pythonで実行したMC結果（0/1のデフォルトデータ）",
+        "  → 最下行: ポートフォリオ損失 = Excel数式 =SUMPRODUCT(defaults, weights)*LGD",
+        "Resultsシート: Excel数式で集計（=AVERAGE, =STDEV, =PERCENTILE, =MAX）",
+        "  → チャート3つが数式結果から自動生成",
     ]
-    for i, text in enumerate(instructions):
+    for i, text in enumerate(notes):
         ws.cell(row=10 + i, column=1, value=text)
 
-    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["A"].width = 32
     ws.column_dimensions["B"].width = 16
-    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions["C"].width = 36
 
 
 def create_weights_sheet(wb):
-    """Sheet 2: Editable weight distributions for each scenario."""
     ws = wb.create_sheet("Weights")
     ws.sheet_properties.tabColor = "7030A0"
 
@@ -123,17 +135,19 @@ def create_weights_sheet(wb):
     ws["A1"].font = TITLE_FONT
     ws.merge_cells("A1:M1")
 
-    ws["A2"] = "※黄色セルは編集可能。ウェイトの合計は100%になるようにしてください。"
-    ws["A2"].font = Font(italic=True, color="FF0000")
-
     # Headers
-    headers = ["シナリオ"] + [f"債務者{i+1}" for i in range(N_OBLIGORS)] + ["合計", "HHI"]
+    headers = (["シナリオ"]
+               + [f"債務者{i+1}" for i in range(N_OBLIGORS)]
+               + ["合計", "HHI", "HHI数式"])
     for c, h in enumerate(headers, 1):
-        ws.cell(row=4, column=c, value=h)
-    style_header_row(ws, 4, len(headers))
+        ws.cell(row=3, column=c, value=h)
+    style_header_row(ws, 3, len(headers))
+
+    first_w = get_column_letter(2)
+    last_w = get_column_letter(N_OBLIGORS + 1)
 
     for s_idx, (name, pcts) in enumerate(SCENARIOS):
-        r = 5 + s_idx
+        r = 4 + s_idx
         ws.cell(row=r, column=1, value=name).fill = PARAM_FILL
         ws.cell(row=r, column=1).border = THIN_BORDER
 
@@ -144,42 +158,39 @@ def create_weights_sheet(wb):
             c.border = THIN_BORDER
             c.alignment = Alignment(horizontal="center")
 
-        # Sum formula (should = 100%)
-        sum_col = N_OBLIGORS + 2  # column L
-        sum_cell = ws.cell(row=r, column=sum_col)
-        first_col = get_column_letter(2)
-        last_col = get_column_letter(N_OBLIGORS + 1)
-        sum_cell.value = f"=SUM({first_col}{r}:{last_col}{r})"
-        sum_cell.number_format = "0.0%"
-        sum_cell.border = THIN_BORDER
-        sum_cell.alignment = Alignment(horizontal="center")
+        # SUM formula
+        sum_col = N_OBLIGORS + 2
+        c = ws.cell(row=r, column=sum_col)
+        c.value = f"=SUM({first_w}{r}:{last_w}{r})"
+        c.number_format = "0.0%"
+        style_cell(c, "0.0%")
 
-        # HHI formula = SUMPRODUCT(weights^2)
-        hhi_col = N_OBLIGORS + 3  # column M
-        hhi_cell = ws.cell(row=r, column=hhi_col)
-        hhi_cell.value = f"=SUMPRODUCT({first_col}{r}:{last_col}{r},{first_col}{r}:{last_col}{r})"
-        hhi_cell.number_format = "0.0000"
-        hhi_cell.border = THIN_BORDER
-        hhi_cell.alignment = Alignment(horizontal="center")
+        # HHI formula
+        hhi_col = N_OBLIGORS + 3
+        c = ws.cell(row=r, column=hhi_col)
+        c.value = f"=SUMPRODUCT({first_w}{r}:{last_w}{r},{first_w}{r}:{last_w}{r})"
+        c.number_format = "0.0000"
+        style_cell(c, "0.0000")
+
+        # Show formula as text for reference
+        formula_col = N_OBLIGORS + 4
+        ws.cell(row=r, column=formula_col,
+                value=f'=SUMPRODUCT(B{r}:K{r},B{r}:K{r})')
 
     ws.column_dimensions["A"].width = 16
-    for c in range(2, N_OBLIGORS + 4):
-        ws.column_dimensions[get_column_letter(c)].width = 10
+    for c in range(2, N_OBLIGORS + 5):
+        ws.column_dimensions[get_column_letter(c)].width = 11
 
 
-def create_simulation_sheet(wb, scenario_idx):
-    """Create a simulation sheet for one scenario.
-
-    Each cell: =IF(RAND() < PD, 1, 0)  (independent Bernoulli)
-    Bottom row: portfolio loss = SUM(default_i * weight_i * LGD)
-    """
+def create_simulation_sheet(wb, scenario_idx, defaults_matrix, losses):
+    """Write pre-computed simulation data + Excel formulas for portfolio loss."""
     name = SCENARIOS[scenario_idx][0]
     ws = wb.create_sheet(f"Sim_{scenario_idx+1}_{name}")
     ws.sheet_properties.tabColor = "C55A11"
 
-    s_row = 5 + scenario_idx  # row in Weights sheet for this scenario
+    s_row = 4 + scenario_idx  # weight row in Weights sheet
 
-    # Column A: Obligor labels
+    # Column A: labels
     ws.cell(row=1, column=1, value="債務者 \\ Trial")
     ws.cell(row=1, column=1).font = HEADER_FONT
     ws.cell(row=1, column=1).fill = HEADER_FILL
@@ -190,235 +201,281 @@ def create_simulation_sheet(wb, scenario_idx):
         c.fill = PARAM_FILL
         c.border = THIN_BORDER
 
+    # Formula description row
+    desc_row = N_OBLIGORS + 2
+    ws.cell(row=desc_row, column=1, value="数式")
+    ws.cell(row=desc_row, column=1).font = Font(bold=True, italic=True, color="808080")
+
     # Portfolio loss row
     loss_row = N_OBLIGORS + 3
     ws.cell(row=loss_row, column=1, value="Portfolio Loss")
     ws.cell(row=loss_row, column=1).font = Font(bold=True, color="FF0000")
     ws.cell(row=loss_row, column=1).border = THIN_BORDER
 
-    # Trial headers + formulas
-    for j in range(1, N_SIMS + 1):
-        col = j + 1
+    # Loss formula description row
+    loss_desc_row = N_OBLIGORS + 4
+    ws.cell(row=loss_desc_row, column=1, value="損失の数式")
+    ws.cell(row=loss_desc_row, column=1).font = Font(bold=True, italic=True, color="808080")
+
+    first_r = 2
+    last_r = N_OBLIGORS + 1
+    w_first = get_column_letter(2)
+    w_last = get_column_letter(N_OBLIGORS + 1)
+
+    for j in range(N_SIMS):
+        col = j + 2
         col_letter = get_column_letter(col)
 
         # Trial header
-        c = ws.cell(row=1, column=col, value=f"Trial {j}")
+        c = ws.cell(row=1, column=col, value=f"Trial {j+1}")
         c.font = HEADER_FONT
         c.fill = HEADER_FILL
         c.alignment = Alignment(horizontal="center")
 
-        # Default indicator for each obligor: =IF(RAND() < PD, 1, 0)
+        # Pre-computed default indicators (0 or 1)
         for i in range(N_OBLIGORS):
-            r = i + 2
-            cell = ws.cell(row=r, column=col)
-            cell.value = "=IF(RAND()<Parameters!$B$4,1,0)"
+            cell = ws.cell(row=i + 2, column=col, value=int(defaults_matrix[j, i]))
             cell.number_format = "0"
 
-        # Portfolio loss = SUM(default_i * weight_i) * LGD
-        # = (D1*w1 + D2*w2 + ...) * LGD
-        # Use SUMPRODUCT(defaults, weights) * LGD
-        first_r = 2
-        last_r = N_OBLIGORS + 1
-        weight_first = get_column_letter(2)
-        weight_last = get_column_letter(N_OBLIGORS + 1)
+        # Formula description (only first trial)
+        if j == 0:
+            ws.cell(row=desc_row, column=col,
+                    value="↑ Pythonで計算済み: IF(RAND()<PD, 1, 0)")
+            ws.cell(row=desc_row, column=col).font = Font(italic=True, color="808080")
+
+        # Portfolio loss: Excel formula =SUMPRODUCT(defaults, weights)*LGD
         formula = (
             f"=SUMPRODUCT({col_letter}{first_r}:{col_letter}{last_r},"
-            f"Weights!{weight_first}${s_row}:{weight_last}${s_row})"
+            f"Weights!{w_first}${s_row}:{w_last}${s_row})"
             f"*Parameters!$B$5"
         )
         cell = ws.cell(row=loss_row, column=col, value=formula)
         cell.number_format = "0.00%"
         cell.font = Font(bold=True)
 
+        # Formula text (only first trial)
+        if j == 0:
+            ws.cell(row=loss_desc_row, column=col,
+                    value=f"=SUMPRODUCT({col_letter}2:{col_letter}{last_r},"
+                          f"Weights!B$4:K$4)*Parameters!$B$5")
+            ws.cell(row=loss_desc_row, column=col).font = Font(italic=True, color="808080")
+
     ws.column_dimensions["A"].width = 16
     return ws
 
 
 def create_results_sheet(wb):
-    """Sheet: Results with formulas referencing all simulation sheets."""
+    """Results with ALL Excel formulas + formula text reference."""
     ws = wb.create_sheet("Results")
     ws.sheet_properties.tabColor = "00B050"
 
-    ws["A1"] = "HHI vs 損失率 シミュレーション結果（全て数式）"
+    ws["A1"] = "HHI vs 損失率 シミュレーション結果"
     ws["A1"].font = TITLE_FONT
     ws.merge_cells("A1:I1")
 
-    loss_row = N_OBLIGORS + 3  # portfolio loss row in each Sim sheet
+    ws["A2"] = "※ 全ての値はExcel数式で計算されています（右の列に数式テキスト表示）"
+    ws["A2"].font = Font(italic=True, color="FF0000")
+
+    loss_row = N_OBLIGORS + 3
     last_col = get_column_letter(N_SIMS + 1)
 
     # ── Summary Table ────────────────────────────────────────────────────
-    ws["A3"] = "シナリオ別 損失指標"
-    ws["A3"].font = SUBTITLE_FONT
+    ws["A4"] = "シナリオ別 損失指標"
+    ws["A4"].font = SUBTITLE_FONT
 
     headers = [
-        "シナリオ", "HHI",
-        "期待損失率\nE[L]",
-        "標準偏差\nσ",
-        "理論値 σ\n=√(HHI·PD·(1-PD))",
-        "VaR 99%",
-        "VaR 99.9%",
-        "最大損失率",
-        "最大ウェイト",
+        "シナリオ", "HHI\n(数式)",
+        "期待損失率\n=AVERAGE()",
+        "標準偏差\n=STDEV()",
+        "理論値 σ\n=SQRT()",
+        "VaR 99%\n=PERCENTILE(,0.99)",
+        "VaR 99.9%\n=PERCENTILE(,0.999)",
+        "最大損失率\n=MAX()",
+        "最大ウェイト\n=MAX()",
     ]
     for c, h in enumerate(headers, 1):
-        ws.cell(row=4, column=c, value=h)
-    style_header_row(ws, 4, len(headers))
+        ws.cell(row=5, column=c, value=h)
+    style_header_row(ws, 5, len(headers))
+
+    # Formula text column headers (columns K onwards)
+    formula_headers = [
+        "HHI数式", "E[L]数式", "σ数式", "理論σ数式",
+        "VaR99%数式", "VaR99.9%数式", "MAX数式",
+    ]
+    for c, h in enumerate(formula_headers):
+        cell = ws.cell(row=5, column=11 + c, value=h)
+        cell.font = Font(bold=True, color="808080", size=9)
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    hhi_col_letter = get_column_letter(N_OBLIGORS + 3)
+    w_first = get_column_letter(2)
+    w_last = get_column_letter(N_OBLIGORS + 1)
 
     for s_idx, (name, _) in enumerate(SCENARIOS):
-        r = 5 + s_idx
+        r = 6 + s_idx
         sim_sheet = f"Sim_{s_idx+1}_{name}"
-        s_weight_row = 5 + s_idx  # row in Weights sheet
-        w_first = get_column_letter(2)
-        w_last = get_column_letter(N_OBLIGORS + 1)
+        s_weight_row = 4 + s_idx
 
         loss_range = f"'{sim_sheet}'!B{loss_row}:{last_col}{loss_row}"
 
-        # Scenario name
+        # A: Scenario name
         ws.cell(row=r, column=1, value=name).fill = PARAM_FILL
         style_cell(ws.cell(row=r, column=1))
 
-        # HHI (from Weights sheet)
-        hhi_col = get_column_letter(N_OBLIGORS + 3)
-        c = ws.cell(row=r, column=2, value=f"=Weights!{hhi_col}{s_weight_row}")
+        # B: HHI (formula)
+        f_hhi = f"=Weights!{hhi_col_letter}{s_weight_row}"
+        c = ws.cell(row=r, column=2, value=f_hhi)
         style_cell(c, "0.0000")
 
-        # Expected Loss = AVERAGE
-        c = ws.cell(row=r, column=3, value=f"=AVERAGE({loss_range})")
+        # C: Expected Loss = AVERAGE
+        f_el = f"=AVERAGE({loss_range})"
+        c = ws.cell(row=r, column=3, value=f_el)
         style_cell(c, "0.0000%")
 
-        # Std Dev = STDEV
-        c = ws.cell(row=r, column=4, value=f"=STDEV({loss_range})")
+        # D: Std Dev = STDEV
+        f_sd = f"=STDEV({loss_range})"
+        c = ws.cell(row=r, column=4, value=f_sd)
         style_cell(c, "0.0000%")
 
-        # Theoretical σ = SQRT(HHI * PD * (1-PD)) * LGD
-        c = ws.cell(row=r, column=5,
-                    value=f"=SQRT(B{r}*Parameters!$B$4*(1-Parameters!$B$4))*Parameters!$B$5")
+        # E: Theoretical σ
+        f_theo = f"=SQRT(B{r}*Parameters!$B$4*(1-Parameters!$B$4))*Parameters!$B$5"
+        c = ws.cell(row=r, column=5, value=f_theo)
         style_cell(c, "0.0000%")
 
-        # VaR 99%
-        c = ws.cell(row=r, column=6, value=f"=PERCENTILE({loss_range},0.99)")
+        # F: VaR 99%
+        f_v99 = f"=PERCENTILE({loss_range},0.99)"
+        c = ws.cell(row=r, column=6, value=f_v99)
         style_cell(c, "0.00%")
 
-        # VaR 99.9%
-        c = ws.cell(row=r, column=7, value=f"=PERCENTILE({loss_range},0.999)")
+        # G: VaR 99.9%
+        f_v999 = f"=PERCENTILE({loss_range},0.999)"
+        c = ws.cell(row=r, column=7, value=f_v999)
         style_cell(c, "0.00%")
 
-        # Max Loss
-        c = ws.cell(row=r, column=8, value=f"=MAX({loss_range})")
+        # H: Max Loss
+        f_max = f"=MAX({loss_range})"
+        c = ws.cell(row=r, column=8, value=f_max)
         style_cell(c, "0.00%")
 
-        # Max Weight = MAX of weights
-        c = ws.cell(row=r, column=9,
-                    value=f"=MAX(Weights!{w_first}{s_weight_row}:{w_last}{s_weight_row})")
+        # I: Max Weight
+        f_mw = f"=MAX(Weights!{w_first}{s_weight_row}:{w_last}{s_weight_row})"
+        c = ws.cell(row=r, column=9, value=f_mw)
         style_cell(c, "0.0%")
 
-    last_data_row = 4 + N_SCENARIOS
+        # K-Q: Formula text (visible as reference)
+        formulas_text = [f_hhi, f_el, f_sd, f_theo, f_v99, f_v999, f_max]
+        for fi, ft in enumerate(formulas_text):
+            cell = ws.cell(row=r, column=11 + fi, value=ft)
+            cell.font = Font(color="808080", size=9)
 
-    # ── Theoretical E[L] reference ───────────────────────────────────────
+    last_data_row = 5 + N_SCENARIOS
+
+    # ── Theoretical E[L] ─────────────────────────────────────────────────
     ws.cell(row=last_data_row + 2, column=1, value="理論値 E[L]").font = SUBTITLE_FONT
     c = ws.cell(row=last_data_row + 2, column=2,
                 value="=Parameters!$B$4*Parameters!$B$5")
     style_cell(c, "0.0000%")
     ws.cell(row=last_data_row + 2, column=3,
-            value="= PD × LGD（HHIに関係なく一定）")
+            value="= PD × LGD（HHIに無関係 → 期待損失は集中度に依存しない）")
 
-    # ── Chart 1: σ simulated vs theoretical ──────────────────────────────
+    # ── Formula Summary ──────────────────────────────────────────────────
+    fs_row = last_data_row + 4
+    ws.cell(row=fs_row, column=1, value="数式の一覧").font = SUBTITLE_FONT
+
+    formula_table = [
+        ("計算項目", "Excel数式", "意味"),
+        ("HHI", "=SUMPRODUCT(w, w)", "Σ(w_i²) — ウェイトの二乗和 = 集中度"),
+        ("デフォルト判定", "IF(RAND()<PD, 1, 0)", "各債務者が独立にPDの確率でデフォルト"),
+        ("ポートフォリオ損失", "=SUMPRODUCT(D, w)*LGD", "Σ(D_i × w_i) × LGD"),
+        ("期待損失率 E[L]", "=AVERAGE(損失)", "= PD × LGD（常に0.03%）"),
+        ("標準偏差 σ", "=STDEV(損失)", "≈ √(HHI × PD × (1-PD))"),
+        ("理論値 σ", "=SQRT(HHI*PD*(1-PD))*LGD", "解析解（シミュレーションと一致するはず）"),
+        ("VaR 99.9%", "=PERCENTILE(損失, 0.999)", "上位0.1%の損失境界"),
+        ("最大損失率", "=MAX(損失)", "全試行中の最悪ケース"),
+    ]
+    for i, row_data in enumerate(formula_table):
+        r = fs_row + 1 + i
+        for j, val in enumerate(row_data):
+            cell = ws.cell(row=r, column=1 + j, value=val)
+            cell.border = THIN_BORDER
+            if i == 0:
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+            else:
+                cell.fill = PARAM_FILL if j == 0 else PatternFill()
+
+    # ── Chart 1: σ vs theoretical ────────────────────────────────────────
     chart1 = BarChart()
     chart1.type = "col"
     chart1.style = 10
-    chart1.title = "HHI vs 標準偏差（シミュレーション vs 理論値）"
-    chart1.x_axis.title = "シナリオ"
+    chart1.title = "標準偏差: シミュレーション =STDEV() vs 理論値 =SQRT()"
+    chart1.x_axis.title = "シナリオ（集中度↑）"
     chart1.y_axis.title = "標準偏差"
     chart1.y_axis.numFmt = "0.00%"
     chart1.width = 22
     chart1.height = 13
 
-    cats = Reference(ws, min_col=1, min_row=5, max_row=last_data_row)
-    d1 = Reference(ws, min_col=4, min_row=4, max_row=last_data_row)
-    d2 = Reference(ws, min_col=5, min_row=4, max_row=last_data_row)
-    chart1.add_data(d1, titles_from_data=True)
-    chart1.add_data(d2, titles_from_data=True)
+    cats = Reference(ws, min_col=1, min_row=6, max_row=last_data_row)
+    chart1.add_data(Reference(ws, min_col=4, min_row=5, max_row=last_data_row),
+                    titles_from_data=True)
+    chart1.add_data(Reference(ws, min_col=5, min_row=5, max_row=last_data_row),
+                    titles_from_data=True)
     chart1.set_categories(cats)
     chart1.series[0].graphicalProperties.solidFill = "FF9800"
     chart1.series[1].graphicalProperties.solidFill = "FF0000"
 
-    ws.add_chart(chart1, "A" + str(last_data_row + 5))
+    ws.add_chart(chart1, "A" + str(fs_row + 12))
 
-    # ── Chart 2: VaR 99.9% vs Max Loss (the pitfall) ────────────────────
+    # ── Chart 2: VaR pitfall ─────────────────────────────────────────────
     chart2 = BarChart()
     chart2.type = "col"
     chart2.style = 10
-    chart2.title = "VaRの落とし穴: VaR 99.9% vs 最大損失率"
+    chart2.title = "VaRの落とし穴: =PERCENTILE(,0.999) vs =MAX()"
     chart2.x_axis.title = "シナリオ（集中度↑）"
     chart2.y_axis.title = "損失率"
     chart2.y_axis.numFmt = "0%"
     chart2.width = 22
     chart2.height = 13
 
-    d3 = Reference(ws, min_col=7, min_row=4, max_row=last_data_row)
-    d4 = Reference(ws, min_col=8, min_row=4, max_row=last_data_row)
-    chart2.add_data(d3, titles_from_data=True)
-    chart2.add_data(d4, titles_from_data=True)
+    chart2.add_data(Reference(ws, min_col=7, min_row=5, max_row=last_data_row),
+                    titles_from_data=True)
+    chart2.add_data(Reference(ws, min_col=8, min_row=5, max_row=last_data_row),
+                    titles_from_data=True)
     chart2.set_categories(cats)
     chart2.series[0].graphicalProperties.solidFill = "E91E63"
     chart2.series[1].graphicalProperties.solidFill = "9C27B0"
 
-    ws.add_chart(chart2, "A" + str(last_data_row + 21))
+    ws.add_chart(chart2, "A" + str(fs_row + 28))
 
-    # ── Chart 3: All metrics by HHI ─────────────────────────────────────
+    # ── Chart 3: All metrics ─────────────────────────────────────────────
     chart3 = BarChart()
     chart3.type = "col"
     chart3.style = 10
-    chart3.title = "全指標比較（HHI順）"
+    chart3.title = "全指標比較: =AVERAGE() / =STDEV() / =PERCENTILE() / =MAX()"
     chart3.x_axis.title = "シナリオ（集中度↑）"
     chart3.y_axis.title = "損失率"
     chart3.y_axis.numFmt = "0%"
     chart3.width = 22
     chart3.height = 13
 
-    for col_idx in [3, 4, 7, 8]:
-        ref = Reference(ws, min_col=col_idx, min_row=4, max_row=last_data_row)
-        chart3.add_data(ref, titles_from_data=True)
+    for ci in [3, 4, 7, 8]:
+        chart3.add_data(Reference(ws, min_col=ci, min_row=5, max_row=last_data_row),
+                        titles_from_data=True)
     chart3.set_categories(cats)
-
-    colors = ["2196F3", "FF9800", "E91E63", "9C27B0"]
-    for i, color in enumerate(colors):
+    for i, color in enumerate(["2196F3", "FF9800", "E91E63", "9C27B0"]):
         chart3.series[i].graphicalProperties.solidFill = color
 
-    ws.add_chart(chart3, "A" + str(last_data_row + 37))
+    ws.add_chart(chart3, "A" + str(fs_row + 44))
 
-    # Column widths
-    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["A"].width = 20
     for c in range(2, 10):
         ws.column_dimensions[get_column_letter(c)].width = 16
-
-    # ── Key Formulas Reference ───────────────────────────────────────────
-    formula_start = last_data_row + 54
-    ws.cell(row=formula_start, column=1, value="使用されている数式").font = SUBTITLE_FONT
-
-    formulas = [
-        ("HHI (集中度指数)", "=SUMPRODUCT(w₁:w₁₀, w₁:w₁₀)", "Weightsシート M列"),
-        ("デフォルト判定", "=IF(RAND()<PD, 1, 0)", "各Simシート（相関=0のBernoulli）"),
-        ("ポートフォリオ損失", "=SUMPRODUCT(defaults, weights)*LGD", "各Simシート最下行"),
-        ("期待損失率 E[L]", "=AVERAGE(全trial損失)", "= PD × LGD（HHI無関係）"),
-        ("標準偏差 σ", "=STDEV(全trial損失)", "≈ √(HHI × PD × (1-PD))"),
-        ("理論値 σ", "=SQRT(HHI*PD*(1-PD))*LGD", "再生性による解析解"),
-        ("VaR 99.9%", "=PERCENTILE(損失, 0.999)", "上位0.1%の損失額"),
-    ]
-    ws.cell(row=formula_start + 1, column=1, value="計算項目")
-    ws.cell(row=formula_start + 1, column=2, value="Excel数式")
-    ws.cell(row=formula_start + 1, column=3, value="説明")
-    style_header_row(ws, formula_start + 1, 3)
-
-    for i, (label, formula, desc) in enumerate(formulas):
-        r = formula_start + 2 + i
-        ws.cell(row=r, column=1, value=label).fill = PARAM_FILL
-        ws.cell(row=r, column=1).border = THIN_BORDER
-        ws.cell(row=r, column=2, value=formula).border = THIN_BORDER
-        ws.cell(row=r, column=3, value=desc).border = THIN_BORDER
+    for c in range(11, 18):
+        ws.column_dimensions[get_column_letter(c)].width = 30
 
 
 def main():
+    np.random.seed(42)
     wb = openpyxl.Workbook()
 
     print("Creating Parameters sheet...")
@@ -427,23 +484,34 @@ def main():
     print("Creating Weights sheet...")
     create_weights_sheet(wb)
 
-    print(f"Creating {N_SCENARIOS} simulation sheets ({N_SIMS} trials each)...")
-    for s_idx in range(N_SCENARIOS):
-        name = SCENARIOS[s_idx][0]
-        print(f"  Scenario {s_idx+1}: {name}...")
-        create_simulation_sheet(wb, s_idx)
+    print(f"Running Monte Carlo ({N_SCENARIOS} scenarios x {N_SIMS} trials)...")
+    for s_idx, (name, pcts) in enumerate(SCENARIOS):
+        weights = np.array(pcts, dtype=float)
+        hhi = np.sum((weights / 100) ** 2)
 
-    print("Creating Results sheet...")
+        defaults, losses = run_monte_carlo(weights)
+        print(f"  Scenario {s_idx+1}: {name:8s}  HHI={hhi:.4f}  "
+              f"E[L]={np.mean(losses)*100:.4f}%  "
+              f"σ={np.std(losses)*100:.4f}%  "
+              f"max={np.max(losses)*100:.2f}%")
+
+        create_simulation_sheet(wb, s_idx, defaults, losses)
+
+    print("Creating Results sheet (Excel formulas)...")
     create_results_sheet(wb)
 
     output_path = "hhi_loss_formula.xlsx"
     wb.save(output_path)
     print(f"\nDone! Saved to: {output_path}")
-    print(f"  - {N_SCENARIOS} scenarios x {N_SIMS} trials")
-    print(f"  - {N_OBLIGORS} obligors per scenario")
-    print("  - Open in Excel and press F9 to re-simulate")
-    print("  - Edit weights in the 'Weights' sheet")
-    print("  - Edit PD/LGD in the 'Parameters' sheet")
+    print(f"\nExcel数式の構造:")
+    print(f"  Weights!M列    : =SUMPRODUCT(w,w)        → HHI計算")
+    print(f"  Sim各シート最下行: =SUMPRODUCT(D,w)*LGD     → 損失計算")
+    print(f"  Results!C列    : =AVERAGE(損失)           → 期待損失")
+    print(f"  Results!D列    : =STDEV(損失)             → 標準偏差")
+    print(f"  Results!E列    : =SQRT(HHI*PD*(1-PD))*LGD → 理論値σ")
+    print(f"  Results!F列    : =PERCENTILE(損失,0.99)    → VaR 99%")
+    print(f"  Results!G列    : =PERCENTILE(損失,0.999)   → VaR 99.9%")
+    print(f"  Results!H列    : =MAX(損失)               → 最大損失")
 
 
 if __name__ == "__main__":
