@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+face_fx/assets/*
+!face_fx/assets/.gitkeep
+face_fx/models/

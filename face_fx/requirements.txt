@@ -1,0 +1,16 @@
+# face_fx — リアルタイム顔トラッキング/エフェクト/背景除去
+# Python 3.10 推奨（mediapipe / insightface の対応版に合わせること）
+
+# --- 必須（軽量・GPU不要のコア機能） ---
+opencv-python>=4.8
+mediapipe>=0.10.9
+numpy>=1.24
+
+# --- 仮想カメラ出力（Zoom/OBS/Meet で使う） ---
+pyvirtualcam>=0.11
+
+# --- 任意: 高品質フェイススワップ(Deep-Live-Cam系) を使う場合のみ ---
+# inswapper_128.onnx を別途入手して --hq-model で指定する
+# onnxruntime          # CPU
+# onnxruntime-gpu      # NVIDIA CUDA
+# insightface>=0.7.3
