@@ -10,16 +10,13 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #04050a;
     font-family: system-ui, -apple-system, sans-serif; touch-action: none; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: var(--ui); font-size: 14px; letter-spacing: .15em; z-index: 30; }
-
-  /* top: text input */
+    color: var(--ui); font-size: 14px; letter-spacing: .12em; z-index: 30; text-align: center;
+    padding: 24px; line-height: 1.6; }
   #top { position: fixed; top: env(safe-area-inset-top, 10px); left: 0; right: 0; z-index: 20;
     display: flex; justify-content: center; padding: 10px; }
   #kw { width: min(70vw, 320px); background: rgba(255,255,255,.07);
     border: 1px solid rgba(120,200,255,.35); color: #eaf6ff; text-align: center;
     padding: 10px 14px; border-radius: 12px; outline: none; font-size: 16px; }
-
-  /* bottom: preset buttons + slider */
   #bottom { position: fixed; left: 0; right: 0; bottom: env(safe-area-inset-bottom, 12px);
     z-index: 20; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
   #presets { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
@@ -34,26 +31,38 @@
 </head>
 <body>
 <div id="loading">LOADING…</div>
-<div id="top"><input id="kw" type="text" value="IDEA" maxlength="14" /></div>
+<div id="top"><input id="kw" type="text" value="IDEA" maxlength="16" /></div>
 <div id="bottom">
   <div id="presets"></div>
   <div id="ctl"><span>輝き</span><input id="intensity" type="range" min="0" max="2" step="0.01" value="1" /></div>
   <div id="hint">ドラッグで回転 / ピンチでズーム</div>
 </div>
 
+<!-- show real errors on screen so problems are visible on mobile -->
+<script>
+  const loadingEl = document.getElementById('loading');
+  function showErr(msg){ if(loadingEl){ loadingEl.style.display='flex'; loadingEl.textContent='⚠ ' + msg; } }
+  window.addEventListener('error', e => showErr((e.message||'error') + (e.filename? ' @ '+e.filename.split('/').pop():'')));
+  window.addEventListener('unhandledrejection', e => showErr('読込失敗: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+  // watchdog: if still loading after 12s, hint about network
+  setTimeout(() => { if (loadingEl && loadingEl.style.display !== 'none' && loadingEl.textContent === 'LOADING…')
+    showErr('読み込みが遅い/失敗。通信環境(モバイル回線でCDN到達)を確認してください。'); }, 12000);
+  if (window.HTMLScriptElement && HTMLScriptElement.supports && !HTMLScriptElement.supports('importmap'))
+    showErr('このブラウザは importmap 非対応です。Chrome/Safari を最新にしてください。');
+</script>
+
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
   }
 }
 </script>
 
 <script type="module">
+try {
 import * as THREE from 'three';
-import { FontLoader } from 'three/addons/loaders/FontLoader.js';
-import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -64,26 +73,20 @@ import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
 import { GlitchPass } from 'three/addons/postprocessing/GlitchPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-// ---------- preset definitions ----------
 const PRESETS = {
-  AURA:   { bg:'#05060f', text:'#bfe9ff', emissive:'#5577ff', metalness:0.1, roughness:0.08, transmission:0.7,
-            particle:'#7aa6ff', pmode:'float', accentA:'#5bc8ff', accentB:'#9b5bff',
+  AURA:   { bg:'#05060f', text:'#bfe9ff', glow:'#5577ff', particle:'#7aa6ff', pmode:'float', accentA:'#5bc8ff', accentB:'#9b5bff',
             bloom:1.5, afterimage:0.82, glitch:false, chroma:0.0, show:{wave:false,rings:false,bars:false,rgb:false}, float:0.5 },
-  WAVE:   { bg:'#03080c', text:'#d6ffff', emissive:'#00b4d8', metalness:0.1, roughness:0.1, transmission:0.6,
-            particle:'#48cae4', pmode:'wave', accentA:'#00e5ff', accentB:'#0077b6',
+  WAVE:   { bg:'#03080c', text:'#d6ffff', glow:'#00b4d8', particle:'#48cae4', pmode:'wave', accentA:'#00e5ff', accentB:'#0077b6',
             bloom:1.3, afterimage:0.86, glitch:false, chroma:0.0, show:{wave:true,rings:false,bars:false,rgb:false}, float:0.9 },
-  GLITCH: { bg:'#070708', text:'#e8eef5', emissive:'#8899bb', metalness:0.9, roughness:0.25, transmission:0.0,
-            particle:'#9fd3ff', pmode:'noise', accentA:'#00ffff', accentB:'#ff00ff',
+  GLITCH: { bg:'#070708', text:'#eef3f8', glow:'#88aacc', particle:'#9fd3ff', pmode:'noise', accentA:'#00ffff', accentB:'#ff00ff',
             bloom:1.0, afterimage:0.7, glitch:true, chroma:0.0025, show:{wave:false,rings:false,bars:true,rgb:true}, float:0.15 },
-  PULSE:  { bg:'#0a0503', text:'#ffd27a', emissive:'#ff7b00', metalness:0.4, roughness:0.2, transmission:0.0,
-            particle:'#ffb347', pmode:'sparks', accentA:'#ff9e00', accentB:'#ff4d00',
+  PULSE:  { bg:'#0a0503', text:'#ffd27a', glow:'#ff7b00', particle:'#ffb347', pmode:'sparks', accentA:'#ff9e00', accentB:'#ff4d00',
             bloom:1.7, afterimage:0.8, glitch:false, chroma:0.0, show:{wave:true,rings:true,bars:false,rgb:false}, float:0.4 },
 };
 let mode = 'AURA';
 let intensity = 1;
 
-// ---------- renderer / scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -91,224 +94,158 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 1, 11);
+camera.position.set(0, 1, 12);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.enablePan = false;
 controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
-controls.minDistance = 5; controls.maxDistance = 22;
+controls.minDistance = 5; controls.maxDistance = 24;
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-const lightA = new THREE.PointLight(0xffffff, 60, 80); lightA.position.set(6, 6, 6); scene.add(lightA);
-const lightB = new THREE.PointLight(0xffffff, 40, 80); lightB.position.set(-6, -3, 4); scene.add(lightB);
-
-// ---------- text ----------
-const textGroup = new THREE.Group();
-scene.add(textGroup);
-let font = null, currentText = 'IDEA';
-const mainMesh   = new THREE.Mesh();
-const cyanMesh   = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ color:0x00ffff, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false }));
-const magMesh    = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ color:0xff00ff, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false }));
+// ---------- text rendered to a canvas texture (no external font needed; supports 日本語) ----------
+const textGroup = new THREE.Group(); scene.add(textGroup);
+const mainMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+const cyanMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+const magMat  = new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+const mainMesh = new THREE.Mesh(new THREE.PlaneGeometry(1,1), mainMat);
+const cyanMesh = new THREE.Mesh(mainMesh.geometry, cyanMat);
+const magMesh  = new THREE.Mesh(mainMesh.geometry, magMat);
 textGroup.add(mainMesh, cyanMesh, magMesh);
+let textTex = null;
 
 function buildText(str) {
-  if (!font) return;
-  const g = new TextGeometry(str || ' ', {
-    font, size: 2, depth: 0.5, height: 0.5, curveSegments: 6,
-    bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.03, bevelSegments: 2,
-  });
-  g.center();
-  [mainMesh, cyanMesh, magMesh].forEach(m => { if (m.geometry) m.geometry.dispose(); m.geometry = g; });
-}
-
-function makeMainMaterial(p) {
-  if (p.transmission > 0) {
-    return new THREE.MeshPhysicalMaterial({
-      color: p.text, emissive: p.emissive, emissiveIntensity: 0.5,
-      transmission: p.transmission, thickness: 1.5, ior: 1.3,
-      roughness: p.roughness, metalness: p.metalness, clearcoat: 1, transparent: true,
-    });
-  }
-  return new THREE.MeshStandardMaterial({
-    color: p.text, emissive: p.emissive, emissiveIntensity: 0.6,
-    roughness: p.roughness, metalness: p.metalness,
-  });
+  str = (str && str.length) ? str : ' ';
+  const fs = 200, pad = 80;
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  ctx.font = `bold ${fs}px system-ui, -apple-system, sans-serif`;
+  const w = Math.max(2, ctx.measureText(str).width);
+  cv.width = Math.ceil(w + pad * 2); cv.height = fs + pad * 2;
+  ctx.font = `bold ${fs}px system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 50;
+  ctx.fillText(str, cv.width/2, cv.height/2);
+  ctx.shadowBlur = 0; ctx.fillText(str, cv.width/2, cv.height/2);
+  if (textTex) textTex.dispose();
+  textTex = new THREE.CanvasTexture(cv);
+  textTex.anisotropy = 4; textTex.colorSpace = THREE.SRGBColorSpace;
+  mainMat.map = cyanMat.map = magMat.map = textTex;
+  mainMat.needsUpdate = cyanMat.needsUpdate = magMat.needsUpdate = true;
+  const H = 3.2, W = H * (cv.width / cv.height);
+  const g = new THREE.PlaneGeometry(W, H);
+  [mainMesh, cyanMesh, magMesh].forEach(m => { m.geometry.dispose(); m.geometry = g; });
 }
 
 // ---------- particles ----------
-const PCOUNT = 1600;
-const pbase = new Float32Array(PCOUNT * 3), pseed = new Float32Array(PCOUNT);
-for (let i = 0; i < PCOUNT; i++) {
-  const r = 7 * Math.cbrt(Math.random()), th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
-  pbase[i*3] = r*Math.sin(ph)*Math.cos(th); pbase[i*3+1] = r*Math.sin(ph)*Math.sin(th)*0.6; pbase[i*3+2] = r*Math.cos(ph);
-  pseed[i] = Math.random() * Math.PI * 2;
-}
-const pgeo = new THREE.BufferGeometry();
-pgeo.setAttribute('position', new THREE.BufferAttribute(pbase.slice(), 3));
-const pmat = new THREE.PointsMaterial({ size: 0.08, transparent: true, opacity: 0.85,
-  blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
-const particles = new THREE.Points(pgeo, pmat);
-scene.add(particles);
+const PCOUNT = 1500;
+const pbase = new Float32Array(PCOUNT*3), pseed = new Float32Array(PCOUNT);
+for (let i=0;i<PCOUNT;i++){ const r=7*Math.cbrt(Math.random()), th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1);
+  pbase[i*3]=r*Math.sin(ph)*Math.cos(th); pbase[i*3+1]=r*Math.sin(ph)*Math.sin(th)*0.6; pbase[i*3+2]=r*Math.cos(ph); pseed[i]=Math.random()*Math.PI*2; }
+const pgeo = new THREE.BufferGeometry(); pgeo.setAttribute('position', new THREE.BufferAttribute(pbase.slice(),3));
+const pmat = new THREE.PointsMaterial({ size:0.08, transparent:true, opacity:0.85, blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true });
+const particles = new THREE.Points(pgeo, pmat); scene.add(particles);
 
-// ---------- wave lines ----------
-const waveGroup = new THREE.Group(); waveGroup.position.y = -3; scene.add(waveGroup);
-const WM = 100, WN = 14;
-const waveLines = [];
-for (let l = 0; l < WN; l++) {
-  const g = new THREE.BufferGeometry(); const p = new Float32Array(WM * 3);
-  for (let i = 0; i < WM; i++) { p[i*3] = (i/(WM-1)-0.5)*16; p[i*3+1] = 0; p[i*3+2] = (l/(WN-1)-0.5)*9; }
-  g.setAttribute('position', new THREE.BufferAttribute(p, 3));
-  const ln = new THREE.Line(g, new THREE.LineBasicMaterial({ transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending }));
-  waveLines.push(ln); waveGroup.add(ln);
-}
+// ---------- wave lines / rings / bars ----------
+const waveGroup = new THREE.Group(); waveGroup.position.y=-3; scene.add(waveGroup);
+const WM=100, WN=14, waveLines=[];
+for (let l=0;l<WN;l++){ const g=new THREE.BufferGeometry(), p=new Float32Array(WM*3);
+  for(let i=0;i<WM;i++){ p[i*3]=(i/(WM-1)-0.5)*16; p[i*3+1]=0; p[i*3+2]=(l/(WN-1)-0.5)*9; }
+  g.setAttribute('position', new THREE.BufferAttribute(p,3));
+  const ln=new THREE.Line(g, new THREE.LineBasicMaterial({transparent:true,opacity:0.22,blending:THREE.AdditiveBlending}));
+  waveLines.push(ln); waveGroup.add(ln); }
 
-// ---------- pulse rings ----------
-const ringGroup = new THREE.Group(); ringGroup.rotation.x = -Math.PI/2; ringGroup.position.y = -2.6; scene.add(ringGroup);
-const RN = 5, rings = [];
-for (let i = 0; i < RN; i++) {
-  const m = new THREE.Mesh(new THREE.RingGeometry(1, 1.07, 90),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.4, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
-  rings.push(m); ringGroup.add(m);
-}
+const ringGroup=new THREE.Group(); ringGroup.rotation.x=-Math.PI/2; ringGroup.position.y=-2.6; scene.add(ringGroup);
+const RN=5, rings=[];
+for(let i=0;i<RN;i++){ const m=new THREE.Mesh(new THREE.RingGeometry(1,1.07,90),
+  new THREE.MeshBasicMaterial({transparent:true,opacity:0.4,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+  rings.push(m); ringGroup.add(m); }
 
-// ---------- glitch bars ----------
-const barGroup = new THREE.Group(); scene.add(barGroup);
-const BN = 6, bars = [];
-for (let i = 0; i < BN; i++) {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(12, 1),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
-  m.visible = false; bars.push(m); barGroup.add(m);
-}
+const barGroup=new THREE.Group(); scene.add(barGroup);
+const BN=6, bars=[];
+for(let i=0;i<BN;i++){ const m=new THREE.Mesh(new THREE.PlaneGeometry(12,1),
+  new THREE.MeshBasicMaterial({transparent:true,opacity:0.45,blending:THREE.AdditiveBlending,depthWrite:false}));
+  m.visible=false; bars.push(m); barGroup.add(m); }
 
 // ---------- postprocessing ----------
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const afterPass = new AfterimagePass(0.82); composer.addPass(afterPass);
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.6, 0.1); composer.addPass(bloomPass);
-const rgbPass = new ShaderPass(RGBShiftShader); rgbPass.uniforms.amount.value = 0.0; rgbPass.enabled = false; composer.addPass(rgbPass);
-const glitchPass = new GlitchPass(); glitchPass.goWild = false; glitchPass.enabled = false; composer.addPass(glitchPass);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.6, 0.0); composer.addPass(bloomPass);
+const rgbPass = new ShaderPass(RGBShiftShader); rgbPass.uniforms.amount.value=0; rgbPass.enabled=false; composer.addPass(rgbPass);
+const glitchPass = new GlitchPass(); glitchPass.goWild=false; glitchPass.enabled=false; composer.addPass(glitchPass);
 composer.addPass(new OutputPass());
 
-// ---------- apply preset ----------
-function applyPreset(name) {
-  mode = name;
-  const p = PRESETS[name];
-  scene.background = new THREE.Color(p.bg);
-  scene.fog = new THREE.FogExp2(p.bg, 0.02);
-  lightA.color.set(p.accentA); lightB.color.set(p.accentB);
-
-  if (mainMesh.material) mainMesh.material.dispose();
-  mainMesh.material = makeMainMaterial(p);
-
+function applyPreset(name){
+  mode=name; const p=PRESETS[name];
+  scene.background=new THREE.Color(p.bg); scene.fog=new THREE.FogExp2(p.bg,0.02);
+  mainMat.color.set(p.text);
   pmat.color.set(p.particle);
-  waveLines.forEach(l => l.material.color.set(p.accentA));
-  rings.forEach(r => r.material.color.set(p.accentA));
-
-  bloomPass.strength = p.bloom;
-  afterPass.uniforms.damp.value = p.afterimage;
-  glitchPass.enabled = p.glitch;
-  rgbPass.enabled = p.chroma > 0; rgbPass.uniforms.amount.value = p.chroma;
-
-  waveGroup.visible = p.show.wave;
-  ringGroup.visible = p.show.rings;
-  barGroup.visible  = p.show.bars;
-  cyanMesh.visible = p.show.rgb; magMesh.visible = p.show.rgb;
-
-  document.querySelectorAll('.pbtn').forEach(b => b.classList.toggle('on', b.dataset.p === name));
+  waveLines.forEach(l=>l.material.color.set(p.accentA));
+  rings.forEach(r=>r.material.color.set(p.accentA));
+  bloomPass.strength=p.bloom; afterPass.uniforms.damp.value=p.afterimage;
+  glitchPass.enabled=p.glitch; rgbPass.enabled=p.chroma>0; rgbPass.uniforms.amount.value=p.chroma;
+  waveGroup.visible=p.show.wave; ringGroup.visible=p.show.rings; barGroup.visible=p.show.bars;
+  cyanMesh.visible=p.show.rgb; magMesh.visible=p.show.rgb;
+  document.querySelectorAll('.pbtn').forEach(b=>b.classList.toggle('on', b.dataset.p===name));
   document.documentElement.style.setProperty('--ui', p.accentA);
 }
 
 // ---------- UI ----------
-const presetsEl = document.getElementById('presets');
-Object.keys(PRESETS).forEach(name => {
-  const b = document.createElement('button');
-  b.className = 'pbtn'; b.textContent = name; b.dataset.p = name;
-  b.onclick = () => applyPreset(name);
-  presetsEl.appendChild(b);
-});
-const kw = document.getElementById('kw');
-const rebuild = () => { currentText = kw.value.trim() || ' '; buildText(currentText); };
-kw.addEventListener('input', rebuild);
-kw.addEventListener('change', () => kw.blur());
-document.getElementById('intensity').addEventListener('input', e => { intensity = parseFloat(e.target.value); });
+const presetsEl=document.getElementById('presets');
+Object.keys(PRESETS).forEach(name=>{ const b=document.createElement('button');
+  b.className='pbtn'; b.textContent=name; b.dataset.p=name; b.onclick=()=>applyPreset(name); presetsEl.appendChild(b); });
+const kw=document.getElementById('kw');
+kw.addEventListener('input',()=>buildText(kw.value.trim()));
+kw.addEventListener('change',()=>kw.blur());
+document.getElementById('intensity').addEventListener('input',e=>{ intensity=parseFloat(e.target.value); });
 
 // ---------- animate ----------
-const clock = new THREE.Clock();
-function animate() {
+const clock=new THREE.Clock();
+function animate(){
   requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
-  const p = PRESETS[mode];
-  const k = 0.5 + intensity;
+  const t=clock.getElapsedTime(), p=PRESETS[mode], k=0.5+intensity;
+  bloomPass.strength=p.bloom*(0.5+intensity*0.6);
 
-  // text material glow follows intensity
-  if (mainMesh.material) mainMesh.material.emissiveIntensity = 0.4 + intensity * 1.0;
-  bloomPass.strength = p.bloom * (0.5 + intensity * 0.6);
+  textGroup.position.y=Math.sin(t*1.1)*p.float;
+  if(mode==='WAVE'){ textGroup.rotation.z=Math.sin(t*0.9)*0.04; textGroup.position.y+=Math.sin(t*2)*0.15; } else textGroup.rotation.z=0;
+  if(mode==='PULSE'){ textGroup.scale.setScalar(1+Math.sin(t*3)*0.06*k); } else textGroup.scale.setScalar(1);
+  if(p.show.rgb){ const j=(Math.sin(t*37)>0.6||Math.random()>0.9)?(Math.random()-0.5)*0.4:0.05;
+    cyanMesh.position.x=-0.06-Math.abs(j); magMesh.position.x=0.06+Math.abs(j); }
 
-  // text motion per preset
-  textGroup.position.y = Math.sin(t * 1.1) * p.float;
-  if (mode === 'WAVE') { textGroup.rotation.z = Math.sin(t * 0.9) * 0.04; textGroup.position.y += Math.sin(t * 2) * 0.15; }
-  else textGroup.rotation.z = 0;
-  if (mode === 'PULSE') { const s = 1 + Math.sin(t * 3) * 0.06 * k; textGroup.scale.setScalar(s); }
-  else textGroup.scale.setScalar(1);
+  const a=particles.geometry.attributes.position.array;
+  for(let i=0;i<PCOUNT;i++){ const bx=pbase[i*3],by=pbase[i*3+1],bz=pbase[i*3+2],s=pseed[i];
+    if(p.pmode==='wave'){ a[i*3]=bx; a[i*3+1]=by+Math.sin(bx*0.4+t*1.2+s)*0.6*k; a[i*3+2]=bz; }
+    else if(p.pmode==='sparks'){ const g=((t*0.4+s)%1),sc=1+g*1.4; a[i*3]=bx*sc; a[i*3+1]=by*sc; a[i*3+2]=bz*sc; }
+    else if(p.pmode==='noise'){ a[i*3]=bx+Math.sin(t*0.7+s)*0.5*k; a[i*3+1]=by+Math.cos(t*0.6+s*1.3)*0.5*k; a[i*3+2]=bz+Math.sin(t*0.5+s*0.7)*0.5*k; }
+    else { a[i*3]=bx+Math.sin(t*0.3+s)*0.3; a[i*3+1]=by+Math.cos(t*0.25+s)*0.3; a[i*3+2]=bz; } }
+  particles.geometry.attributes.position.needsUpdate=true; particles.rotation.y=t*0.02; pmat.size=0.06+0.04*intensity;
 
-  // glitch RGB-split jitter
-  if (p.show.rgb) {
-    const j = (Math.sin(t * 37) > 0.6 || Math.random() > 0.9) ? (Math.random() - 0.5) * 0.4 : 0.05;
-    cyanMesh.position.x = -0.06 - Math.abs(j); magMesh.position.x = 0.06 + Math.abs(j);
-  }
+  if(waveGroup.visible) for(let l=0;l<WN;l++){ const arr=waveLines[l].geometry.attributes.position.array;
+    for(let i=0;i<WM;i++){ const x=arr[i*3]; arr[i*3+1]=Math.sin(x*0.5+t*1.5+l*0.4)*0.8*k+Math.sin(x*0.2-t)*0.3; }
+    waveLines[l].geometry.attributes.position.needsUpdate=true; }
+  if(ringGroup.visible) for(let i=0;i<RN;i++){ const ph=((t*(0.5+0.3*intensity)+i/RN)%1),sc=0.5+ph*9;
+    rings[i].scale.set(sc,sc,sc); rings[i].material.opacity=(1-ph)*0.5; }
+  if(barGroup.visible) for(let i=0;i<BN;i++){ const m=bars[i];
+    if(Math.random()<0.05+0.05*intensity){ m.visible=true; m.position.set((Math.random()-0.5)*2,(Math.random()-0.5)*9,1);
+      m.scale.set(0.4+Math.random()*1.6,0.04+Math.random()*0.22,1); m.material.color.set(Math.random()>0.5?p.accentA:p.accentB); }
+    else if(Math.random()<0.3) m.visible=false; }
 
-  // particles
-  const a = particles.geometry.attributes.position.array;
-  for (let i = 0; i < PCOUNT; i++) {
-    const bx = pbase[i*3], by = pbase[i*3+1], bz = pbase[i*3+2], s = pseed[i];
-    if (p.pmode === 'wave') { a[i*3]=bx; a[i*3+1]=by+Math.sin(bx*0.4+t*1.2+s)*0.6*k; a[i*3+2]=bz; }
-    else if (p.pmode === 'sparks') { const g=((t*0.4+s)%1), sc=1+g*1.4; a[i*3]=bx*sc; a[i*3+1]=by*sc; a[i*3+2]=bz*sc; }
-    else if (p.pmode === 'noise') { a[i*3]=bx+Math.sin(t*0.7+s)*0.5*k; a[i*3+1]=by+Math.cos(t*0.6+s*1.3)*0.5*k; a[i*3+2]=bz+Math.sin(t*0.5+s*0.7)*0.5*k; }
-    else { a[i*3]=bx+Math.sin(t*0.3+s)*0.3; a[i*3+1]=by+Math.cos(t*0.25+s)*0.3; a[i*3+2]=bz; }
-  }
-  particles.geometry.attributes.position.needsUpdate = true;
-  particles.rotation.y = t * 0.02;
-  pmat.size = 0.06 + 0.04 * intensity;
-
-  // wave lines
-  if (waveGroup.visible) for (let l = 0; l < WN; l++) {
-    const arr = waveLines[l].geometry.attributes.position.array;
-    for (let i = 0; i < WM; i++) { const x = arr[i*3]; arr[i*3+1] = Math.sin(x*0.5+t*1.5+l*0.4)*0.8*k + Math.sin(x*0.2-t)*0.3; }
-    waveLines[l].geometry.attributes.position.needsUpdate = true;
-  }
-
-  // pulse rings
-  if (ringGroup.visible) for (let i = 0; i < RN; i++) {
-    const phase = ((t * (0.5 + 0.3 * intensity) + i / RN) % 1), sc = 0.5 + phase * 9;
-    rings[i].scale.set(sc, sc, sc); rings[i].material.opacity = (1 - phase) * 0.5;
-  }
-
-  // glitch bars
-  if (barGroup.visible) for (let i = 0; i < BN; i++) {
-    const m = bars[i];
-    if (Math.random() < 0.05 + 0.05 * intensity) {
-      m.visible = true; m.position.set((Math.random()-0.5)*2, (Math.random()-0.5)*9, 1);
-      m.scale.set(0.4 + Math.random()*1.6, 0.04 + Math.random()*0.22, 1);
-      m.material.color.set(Math.random() > 0.5 ? p.accentA : p.accentB);
-    } else if (Math.random() < 0.3) m.visible = false;
-  }
-
-  controls.update();
-  composer.render();
+  controls.update(); composer.render();
 }
 
 // ---------- boot ----------
-new FontLoader().load('https://unpkg.com/three@0.169.0/examples/fonts/helvetiker_bold.typeface.json', (f) => {
-  font = f; buildText(currentText); applyPreset('AURA');
-  document.getElementById('loading').style.display = 'none';
-  animate();
-}, undefined, () => { document.getElementById('loading').textContent = 'フォント読込失敗(ネット接続を確認)'; });
+buildText('IDEA');
+applyPreset('AURA');
+document.getElementById('loading').style.display='none';
+animate();
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
-  bloomPass.resolution.set(innerWidth, innerHeight);
-});
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); composer.setSize(innerWidth,innerHeight); bloomPass.resolution.set(innerWidth,innerHeight); });
+
+} catch (err) {
+  const el = document.getElementById('loading');
+  if (el) { el.style.display='flex'; el.textContent='⚠ ' + (err && err.message ? err.message : err); }
+}
 </script>
 </body>
 </html>
