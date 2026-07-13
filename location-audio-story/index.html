@@ -92,6 +92,7 @@
   <div class="stat"><span class="k">精度 / Accuracy</span><span id="stAcc">–</span></div>
   <div class="stat"><span class="k">受信状態 / Signal</span><span id="stQuality">–</span></div>
   <div class="stat"><span class="k">現在地 / Position</span><span id="stPos">–</span></div>
+  <div class="stat"><span class="k">高度 / Altitude</span><span id="stAlt">–</span></div>
   <div class="stat"><span class="k">最寄り / Nearest</span><span id="stNearest">–</span></div>
 </div>
 
@@ -124,7 +125,7 @@
 <div class="panel">
   <details>
     <summary>✏️ スポット編集 (JSON) / Edit spots</summary>
-    <p class="hint">name(名前), lat, lon, radius(m, 省略時は設定値), text(読み上げ文), audioUrl(音声ファイルURL, 省略時はtextを合成音声で読み上げ), lang(例 "ja-JP")</p>
+    <p class="hint">name(名前), lat, lon, radius(m, 省略時は設定値), text(読み上げ文), audioUrl(音声ファイルURL, 省略時はtextを合成音声で読み上げ), lang(例 "ja-JP"), alt(高度m・省略可), altTol(高度許容差m, 既定20)。altを入れると高度が大きく違う場所(展望台と地上など)で誤発動しません。同じ場所で「＋現在地に追加」すると測定高度が自動記録されます。</p>
     <textarea id="spotJson" spellcheck="false"></textarea>
     <div class="row">
       <button id="btnSaveJson">保存 / Save</button>
@@ -228,6 +229,7 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 const smooth = {
   lat: null, lon: null, acc: null, time: 0,
+  alt: null, altAcc: null,   // GPS altitude: ±10-50m in cities; only useful for large height gaps
   push(fix) {
     const { latitude: lat, longitude: lon, accuracy: acc } = fix.coords;
     const t = fix.timestamp || Date.now();
@@ -247,10 +249,24 @@ const smooth = {
     } else {
       this.lat = lat; this.lon = lon; this.acc = acc;
     }
+    // Altitude: keep only fixes with a stated vertical accuracy <= 30m,
+    // smooth harder than horizontal (GPS altitude is the noisiest channel).
+    const { altitude: al, altitudeAccuracy: alAcc } = fix.coords;
+    if (al != null && alAcc != null && alAcc <= 30) {
+      if (this.alt === null) { this.alt = al; this.altAcc = alAcc; }
+      else {
+        const beta = Math.min(0.5, Math.max(0.1, 8 / alAcc));
+        this.alt += (al - this.alt) * beta;
+        this.altAcc = this.altAcc * (1 - beta) + alAcc * beta;
+      }
+    }
     this.time = t;
     return true;
   },
-  reset() { this.lat = null; this.lon = null; this.acc = null; this.time = 0; }
+  reset() {
+    this.lat = null; this.lon = null; this.acc = null; this.time = 0;
+    this.alt = null; this.altAcc = null;
+  }
 };
 
 /* ================= Trigger engine =================
@@ -277,10 +293,20 @@ function evaluateSpots() {
         log(`EXIT  ${s.name} (${d.toFixed(0)}m)`);
       }
     } else {
+      // Altitude gate: only when the spot declares an altitude AND we have a
+      // usable smoothed altitude. Tolerance widens by the current vertical
+      // error so a spot is never blocked merely because the fix is sloppy.
+      let altOk = true;
+      if (typeof s.alt === "number" && smooth.alt !== null) {
+        const tol = (s.altTol || 20) + smooth.altAcc;
+        altOk = Math.abs(smooth.alt - s.alt) <= tol;
+        if (!altOk && st.streak === 0)
+          log(`${s.name}: altitude gate (Δ${Math.abs(smooth.alt - s.alt).toFixed(0)}m > ±${tol.toFixed(0)}m)`);
+      }
       // Effective distance: subtract part of the GPS error so a spot isn't
       // missed just because urban accuracy is mediocre.
       const effective = d - Math.min(smooth.acc * 0.5, enterR * 0.5);
-      if (effective <= enterR) {
+      if (altOk && effective <= enterR) {
         st.streak++;
         if (st.streak >= OPT.dwell) {
           st.inside = true;
@@ -439,7 +465,9 @@ function simGoto(spot) {
     onFix({
       coords: {
         latitude: spot.lat + jitter(), longitude: spot.lon + jitter(),
-        accuracy: 15 + Math.random() * 25
+        accuracy: 15 + Math.random() * 25,
+        altitude: (spot.alt != null ? spot.alt : 40) + (Math.random() - 0.5) * 8,
+        altitudeAccuracy: 8 + Math.random() * 10
       },
       timestamp: Date.now()
     });
@@ -477,6 +505,8 @@ function setNowPlaying(msg) { document.getElementById("nowplaying").innerHTML = 
 function renderStatus(nearest) {
   document.getElementById("stPos").textContent =
     smooth.lat === null ? "–" : `${smooth.lat.toFixed(5)}, ${smooth.lon.toFixed(5)}`;
+  document.getElementById("stAlt").textContent =
+    smooth.alt === null ? "取得できず / n.a." : `${smooth.alt.toFixed(0)} m (±${smooth.altAcc.toFixed(0)} m)`;
   document.getElementById("stNearest").textContent =
     nearest ? `${nearest.name} まで ${nearest._dist.toFixed(0)} m` : "–";
 }
@@ -506,17 +536,22 @@ function renderSpotList() {
 }
 
 document.getElementById("btnAddHere").addEventListener("click", () => {
-  const grab = (lat, lon) => {
+  const grab = (lat, lon, alt) => {
     const name = prompt("スポット名 / Spot name:");
     if (!name) return;
     const text = prompt("解説文 (読み上げられます) / Story text:") || "";
-    spots.push({ name, lat: +lat.toFixed(6), lon: +lon.toFixed(6), text });
+    const s = { name, lat: +lat.toFixed(6), lon: +lon.toFixed(6), text };
+    // Record measured altitude so later comparisons use the same reference
+    // frame (GPS altitude has a constant ~40m ellipsoid-vs-sea-level offset).
+    if (alt != null) s.alt = +alt.toFixed(1);
+    spots.push(s);
     saveSpots(); syncJsonBox(); renderSpotList(); renderSimButtons();
-    log(`spot added: ${name}`);
+    log(`spot added: ${name}` + (alt != null ? ` (alt ${alt.toFixed(0)}m)` : ""));
   };
-  if (smooth.lat !== null) { grab(smooth.lat, smooth.lon); return; }
+  if (smooth.lat !== null) { grab(smooth.lat, smooth.lon, smooth.alt); return; }
   navigator.geolocation.getCurrentPosition(
-    p => grab(p.coords.latitude, p.coords.longitude),
+    p => grab(p.coords.latitude, p.coords.longitude,
+              (p.coords.altitudeAccuracy != null && p.coords.altitudeAccuracy <= 30) ? p.coords.altitude : null),
     e => alert("位置を取得できません: " + e.message),
     { enableHighAccuracy: true, timeout: 15000 });
 });
