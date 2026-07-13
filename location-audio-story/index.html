@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>まち歩き音声ガイド / Location Audio Story</title>
+<style>
+  :root {
+    --bg: #101418;
+    --panel: #1a2028;
+    --panel2: #222a35;
+    --text: #e8edf2;
+    --muted: #8b98a5;
+    --accent: #4fc3f7;
+    --good: #66bb6a;
+    --warn: #ffa726;
+    --bad: #ef5350;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: var(--bg); color: var(--text);
+    padding: 12px; padding-bottom: 40px;
+    max-width: 640px; margin: 0 auto;
+  }
+  h1 { font-size: 1.15rem; margin: 8px 0 12px; }
+  h2 { font-size: 0.95rem; margin: 16px 0 8px; color: var(--accent); }
+  .panel {
+    background: var(--panel); border-radius: 12px;
+    padding: 12px; margin-bottom: 12px;
+  }
+  button {
+    font-size: 1rem; border: none; border-radius: 10px;
+    padding: 12px 16px; cursor: pointer; color: #fff;
+    background: var(--panel2);
+  }
+  button:active { opacity: 0.7; }
+  .btn-main {
+    width: 100%; font-size: 1.2rem; font-weight: 700;
+    background: var(--accent); color: #06232f; padding: 16px;
+  }
+  .btn-main.running { background: var(--bad); color: #fff; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .row button { flex: 1; min-width: 120px; font-size: 0.85rem; padding: 10px 8px; }
+  .stat { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.9rem; }
+  .stat .k { color: var(--muted); }
+  .acc-good { color: var(--good); } .acc-warn { color: var(--warn); } .acc-bad { color: var(--bad); }
+  #nowplaying {
+    min-height: 44px; font-size: 0.95rem; padding: 10px;
+    background: var(--panel2); border-radius: 8px; margin-top: 8px;
+  }
+  .spot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 6px; border-bottom: 1px solid #2b3542; font-size: 0.9rem; gap: 8px;
+  }
+  .spot:last-child { border-bottom: none; }
+  .spot .name { flex: 1; }
+  .spot .dist { color: var(--muted); white-space: nowrap; }
+  .spot.inside .name { color: var(--good); font-weight: 700; }
+  .spot .del { background: none; color: var(--bad); font-size: 1rem; padding: 4px 8px; }
+  textarea {
+    width: 100%; min-height: 160px; background: var(--panel2); color: var(--text);
+    border: 1px solid #33404f; border-radius: 8px; padding: 8px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem;
+  }
+  #log {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.72rem;
+    color: var(--muted); max-height: 140px; overflow-y: auto; white-space: pre-wrap;
+  }
+  label.opt { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 0.88rem; }
+  input[type=number] {
+    width: 76px; background: var(--panel2); color: var(--text);
+    border: 1px solid #33404f; border-radius: 6px; padding: 6px; font-size: 0.9rem;
+  }
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 0.95rem; padding: 4px 0; }
+</style>
+</head>
+<body>
+
+<h1>🎧 まち歩き音声ガイド <span style="color:var(--muted);font-size:0.8rem">Location Audio Story</span></h1>
+
+<div class="panel">
+  <button id="btnStart" class="btn-main">▶ ガイド開始 / Start Guide</button>
+  <div id="nowplaying">スポットに近づくと自動で解説が流れます。<br>Walk near a spot and the story plays automatically.</div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">📡 GPS 状態 / GPS Status</h2>
+  <div class="stat"><span class="k">精度 / Accuracy</span><span id="stAcc">–</span></div>
+  <div class="stat"><span class="k">受信状態 / Signal</span><span id="stQuality">–</span></div>
+  <div class="stat"><span class="k">現在地 / Position</span><span id="stPos">–</span></div>
+  <div class="stat"><span class="k">最寄り / Nearest</span><span id="stNearest">–</span></div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">📍 スポット / Spots</h2>
+  <div id="spotList"></div>
+  <div class="row">
+    <button id="btnAddHere">＋ 現在地に追加 / Add here</button>
+    <button id="btnTestVoice">🔊 音声テスト / Test voice</button>
+  </div>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>⚙️ 設定 / Settings (GPS誤差対策)</summary>
+    <label class="opt">発動半径 (m) / Trigger radius
+      <input type="number" id="optRadius" value="35" min="10" max="500"></label>
+    <label class="opt">精度しきい値 (m) / Reject fixes worse than
+      <input type="number" id="optMaxAcc" value="50" min="10" max="200"></label>
+    <label class="opt">確定に必要な連続測位数 / Fixes to confirm entry
+      <input type="number" id="optDwell" value="3" min="1" max="10"></label>
+    <label class="opt">再発動までの待ち時間 (分) / Cooldown (min)
+      <input type="number" id="optCooldown" value="30" min="0" max="999"></label>
+    <div class="hint">
+      ビル街でGPSが乱れても誤発動しないよう、①精度の悪い測位を捨てる、②位置を平滑化する、③円に「入る判定」と「出る判定」の半径を変える(ヒステリシス)、④連続して円内にいた時だけ発動する、の4段構えです。
+    </div>
+  </details>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>✏️ スポット編集 (JSON) / Edit spots</summary>
+    <p class="hint">name(名前), lat, lon, radius(m, 省略時は設定値), text(読み上げ文), audioUrl(音声ファイルURL, 省略時はtextを合成音声で読み上げ), lang(例 "ja-JP")</p>
+    <textarea id="spotJson" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="btnSaveJson">保存 / Save</button>
+      <button id="btnResetJson">サンプルに戻す / Reset samples</button>
+    </div>
+  </details>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>🧪 シミュレーション / Simulation (GPSなしでテスト)</summary>
+    <p class="hint">室内での動作確認用。ボタンでスポットへ仮想移動します。/ Test indoors by teleporting a fake position.</p>
+    <div class="row" id="simButtons"></div>
+    <div class="row">
+      <button id="btnSimOff">シミュレーション終了 / Back to real GPS</button>
+    </div>
+  </details>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>📜 ログ / Log</summary>
+    <div id="log"></div>
+  </details>
+</div>
+
+<p class="hint">
+  ※ iPhoneのSafariで開き、位置情報の許可は「App使用中は許可」+「正確な位置情報」ON を選んでください。位置情報はこの端末内でのみ処理され、外部送信されません。<br>
+  ※ HTTPS のページでないと位置情報は動きません (GitHub Pages 等に置けばOK)。
+</p>
+
+<script>
+"use strict";
+
+/* ================= Spot data ================= */
+
+const SAMPLE_SPOTS = [
+  { name: "日本橋 (麒麟像)", lat: 35.684056, lon: 139.774501,
+    text: "ここは日本橋。江戸時代、五街道の起点と定められた場所です。橋の中央に立つ翼のある麒麟の像は、ここから日本中へ飛び立つという意味が込められています。" },
+  { name: "東京駅 丸の内駅舎", lat: 35.681236, lon: 139.767125,
+    text: "東京駅丸の内駅舎は1914年、辰野金吾の設計で完成しました。関東大震災にも耐えた赤レンガの駅舎は、戦災で焼失した屋根が2012年に創建当時の姿へ復原されました。" },
+  { name: "和田倉噴水公園", lat: 35.683049, lon: 139.760232,
+    text: "和田倉噴水公園は、昭和36年に当時の皇太子明仁親王の御成婚を記念して造られました。江戸城の和田倉門があった場所で、堀と石垣が今も残っています。" }
+];
+
+const LS_SPOTS = "lag_spots_v1";
+const LS_OPTS  = "lag_opts_v1";
+
+let spots = loadSpots();
+
+function loadSpots() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_SPOTS));
+    if (Array.isArray(s) && s.length) return s;
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(SAMPLE_SPOTS));
+}
+function saveSpots() { localStorage.setItem(LS_SPOTS, JSON.stringify(spots)); }
+
+/* ================= Options ================= */
+
+const optEls = {
+  radius:   document.getElementById("optRadius"),
+  maxAcc:   document.getElementById("optMaxAcc"),
+  dwell:    document.getElementById("optDwell"),
+  cooldown: document.getElementById("optCooldown"),
+};
+try {
+  const o = JSON.parse(localStorage.getItem(LS_OPTS));
+  if (o) for (const k in optEls) if (o[k] != null) optEls[k].value = o[k];
+} catch (e) {}
+for (const k in optEls) optEls[k].addEventListener("change", () => {
+  localStorage.setItem(LS_OPTS, JSON.stringify(Object.fromEntries(
+    Object.entries(optEls).map(([k, el]) => [k, +el.value]))));
+});
+const OPT = {
+  get radius()   { return +optEls.radius.value || 35; },
+  get maxAcc()   { return +optEls.maxAcc.value || 50; },
+  get dwell()    { return +optEls.dwell.value || 3; },
+  get cooldown() { return (+optEls.cooldown.value || 0) * 60 * 1000; },
+  // exit radius = enter radius * 1.6 + 15m (hysteresis so noisy GPS doesn't flap in/out)
+  exitRadius(r)  { return r * 1.6 + 15; },
+};
+
+/* ================= Geometry ================= */
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/* ================= Position smoothing =================
+   Urban-canyon countermeasures, layer by layer:
+   1. Reject fixes with accuracy worse than OPT.maxAcc (multipath junk).
+   2. Reject impossible jumps (> 12 m/s implied speed vs. smoothed position).
+   3. Exponential smoothing weighted by fix accuracy: a precise fix moves the
+      estimate a lot, a sloppy fix barely moves it.                        */
+
+const smooth = {
+  lat: null, lon: null, acc: null, time: 0,
+  push(fix) {
+    const { latitude: lat, longitude: lon, accuracy: acc } = fix.coords;
+    const t = fix.timestamp || Date.now();
+    if (acc > OPT.maxAcc) { log(`fix rejected: accuracy ${acc.toFixed(0)}m > ${OPT.maxAcc}m`); return false; }
+    if (this.lat !== null) {
+      const dt = Math.max((t - this.time) / 1000, 0.5);
+      const d = haversine(this.lat, this.lon, lat, lon);
+      if (d / dt > 12 && d > acc + (this.acc || 0)) {
+        log(`fix rejected: implied speed ${(d / dt).toFixed(1)}m/s (jump ${d.toFixed(0)}m)`);
+        return false;
+      }
+      // weight: good accuracy -> alpha near 0.85, poor accuracy -> alpha near 0.25
+      const alpha = Math.min(0.85, Math.max(0.25, 15 / acc));
+      this.lat += (lat - this.lat) * alpha;
+      this.lon += (lon - this.lon) * alpha;
+      this.acc = this.acc * (1 - alpha) + acc * alpha;
+    } else {
+      this.lat = lat; this.lon = lon; this.acc = acc;
+    }
+    this.time = t;
+    return true;
+  },
+  reset() { this.lat = null; this.lon = null; this.acc = null; this.time = 0; }
+};
+
+/* ================= Trigger engine =================
+   Per spot state machine: OUTSIDE -> (dwell consecutive fixes inside enter
+   radius) -> INSIDE (play) -> stays INSIDE until beyond exit radius.
+   Cooldown prevents replay when circling the block.                        */
+
+const spotState = new Map(); // name -> {inside, streak, lastPlayed}
+
+function evaluateSpots() {
+  if (smooth.lat === null) return;
+  let nearest = null;
+  for (const s of spots) {
+    const st = spotState.get(s.name) || { inside: false, streak: 0, lastPlayed: 0 };
+    spotState.set(s.name, st);
+    const enterR = s.radius || OPT.radius;
+    const d = haversine(smooth.lat, smooth.lon, s.lat, s.lon);
+    s._dist = d;
+    if (!nearest || d < nearest._dist) nearest = s;
+
+    if (st.inside) {
+      if (d > OPT.exitRadius(enterR)) {
+        st.inside = false; st.streak = 0;
+        log(`EXIT  ${s.name} (${d.toFixed(0)}m)`);
+      }
+    } else {
+      // Effective distance: subtract part of the GPS error so a spot isn't
+      // missed just because urban accuracy is mediocre.
+      const effective = d - Math.min(smooth.acc * 0.5, enterR * 0.5);
+      if (effective <= enterR) {
+        st.streak++;
+        if (st.streak >= OPT.dwell) {
+          st.inside = true;
+          const now = Date.now();
+          if (now - st.lastPlayed >= OPT.cooldown) {
+            st.lastPlayed = now;
+            log(`ENTER ${s.name} (${d.toFixed(0)}m) -> play`);
+            enqueue(s);
+          } else {
+            log(`ENTER ${s.name} but in cooldown, skipped`);
+          }
+        }
+      } else {
+        st.streak = 0;
+      }
+    }
+  }
+  renderStatus(nearest);
+  renderSpotList();
+}
+
+/* ================= Audio (queue: TTS or audio file) ================= */
+
+const queue = [];
+let playing = false;
+const player = new Audio();
+
+function enqueue(spot) {
+  if (queue.some(q => q.name === spot.name)) return;
+  queue.push(spot);
+  drain();
+}
+
+function drain() {
+  if (playing || queue.length === 0) return;
+  const spot = queue.shift();
+  playing = true;
+  setNowPlaying(`▶ ${spot.name}`);
+  const done = () => { playing = false; setNowPlaying(`✓ ${spot.name}`); drain(); };
+
+  if (spot.audioUrl) {
+    player.src = spot.audioUrl;
+    player.onended = done;
+    player.onerror = () => { log(`audio error for ${spot.name}, falling back to TTS`); speak(spot, done); };
+    player.play().catch(() => { log(`audio play blocked for ${spot.name}, falling back to TTS`); speak(spot, done); });
+  } else {
+    speak(spot, done);
+  }
+}
+
+function speak(spot, done) {
+  if (!("speechSynthesis" in window)) { log("no speechSynthesis"); done(); return; }
+  const u = new SpeechSynthesisUtterance(`${spot.name}。${spot.text || ""}`);
+  u.lang = spot.lang || "ja-JP";
+  u.rate = 1.0;
+  u.onend = done;
+  u.onerror = done;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+/* iOS Safari unlocks audio/TTS only inside a user gesture — prime both. */
+function primeAudio() {
+  try {
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+  try {
+    player.src = "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4P/////////////////////////////////8AAAA5TEFNRTMuMTAwAc0AAAAAAAAAABSAJAJAQgAAgAAAASBTvPSKAAAAAAD/+xDEAAPAAAGkAAAAIAAANIAAAARMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7EMQpg8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
+    player.play().then(() => player.pause()).catch(() => {});
+  } catch (e) {}
+}
+
+/* ================= Wake lock (keep screen on while guiding) ================= */
+
+let wakeLock = null;
+async function acquireWakeLock() {
+  try {
+    if ("wakeLock" in navigator) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+      log("wake lock acquired (screen stays on)");
+    }
+  } catch (e) { log("wake lock unavailable: " + e.message); }
+}
+document.addEventListener("visibilitychange", () => {
+  if (running && document.visibilityState === "visible" && !wakeLock) acquireWakeLock();
+});
+
+/* ================= GPS control ================= */
+
+let running = false;
+let watchId = null;
+let simMode = false;
+let simTimer = null;
+
+function onFix(fix) {
+  const acc = fix.coords.accuracy;
+  const el = document.getElementById("stAcc");
+  el.textContent = `±${acc.toFixed(0)} m`;
+  el.className = acc <= 20 ? "acc-good" : acc <= 50 ? "acc-warn" : "acc-bad";
+  document.getElementById("stQuality").textContent =
+    acc <= 20 ? "良好 / good" : acc <= 50 ? "普通(ビル街) / fair" : "悪い / poor — 測位破棄中";
+  if (smooth.push(fix)) evaluateSpots();
+}
+
+function onGpsError(err) {
+  log("GPS error: " + err.message);
+  setNowPlaying("⚠️ 位置情報を取得できません。設定 > プライバシー > 位置情報サービス でSafariを許可してください。");
+}
+
+function start() {
+  primeAudio();
+  running = true;
+  document.getElementById("btnStart").textContent = "■ 停止 / Stop";
+  document.getElementById("btnStart").classList.add("running");
+  setNowPlaying("案内中… スポットに近づくと解説が流れます。");
+  smooth.reset();
+  spotState.clear();
+  acquireWakeLock();
+  if (!simMode) {
+    watchId = navigator.geolocation.watchPosition(onFix, onGpsError, {
+      enableHighAccuracy: true, maximumAge: 2000, timeout: 15000
+    });
+  }
+  log("guide started" + (simMode ? " (simulation)" : ""));
+}
+
+function stop() {
+  running = false;
+  document.getElementById("btnStart").textContent = "▶ ガイド開始 / Start Guide";
+  document.getElementById("btnStart").classList.remove("running");
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  speechSynthesis.cancel();
+  player.pause();
+  queue.length = 0; playing = false;
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+  setNowPlaying("停止しました。");
+  log("guide stopped");
+}
+
+document.getElementById("btnStart").addEventListener("click", () => running ? stop() : start());
+
+/* ================= Simulation ================= */
+
+function simGoto(spot) {
+  simMode = true;
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (!running) start();
+  if (simTimer) clearInterval(simTimer);
+  // Feed noisy fixes around the spot so dwell/smoothing logic is exercised.
+  simTimer = setInterval(() => {
+    const jitter = () => (Math.random() - 0.5) * 0.0002; // ~±11m
+    onFix({
+      coords: {
+        latitude: spot.lat + jitter(), longitude: spot.lon + jitter(),
+        accuracy: 15 + Math.random() * 25
+      },
+      timestamp: Date.now()
+    });
+  }, 1500);
+  log(`simulation: teleported near ${spot.name}`);
+}
+
+document.getElementById("btnSimOff").addEventListener("click", () => {
+  simMode = false;
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  if (running) {
+    smooth.reset();
+    watchId = navigator.geolocation.watchPosition(onFix, onGpsError, {
+      enableHighAccuracy: true, maximumAge: 2000, timeout: 15000
+    });
+  }
+  log("simulation off, back to real GPS");
+});
+
+function renderSimButtons() {
+  const box = document.getElementById("simButtons");
+  box.innerHTML = "";
+  for (const s of spots) {
+    const b = document.createElement("button");
+    b.textContent = "→ " + s.name;
+    b.addEventListener("click", () => simGoto(s));
+    box.appendChild(b);
+  }
+}
+
+/* ================= UI ================= */
+
+function setNowPlaying(msg) { document.getElementById("nowplaying").innerHTML = msg; }
+
+function renderStatus(nearest) {
+  document.getElementById("stPos").textContent =
+    smooth.lat === null ? "–" : `${smooth.lat.toFixed(5)}, ${smooth.lon.toFixed(5)}`;
+  document.getElementById("stNearest").textContent =
+    nearest ? `${nearest.name} まで ${nearest._dist.toFixed(0)} m` : "–";
+}
+
+function renderSpotList() {
+  const box = document.getElementById("spotList");
+  box.innerHTML = "";
+  const sorted = [...spots].sort((a, b) => (a._dist ?? 1e12) - (b._dist ?? 1e12));
+  for (const s of sorted) {
+    const st = spotState.get(s.name);
+    const div = document.createElement("div");
+    div.className = "spot" + (st && st.inside ? " inside" : "");
+    const dist = s._dist != null ? (s._dist < 1000 ? `${s._dist.toFixed(0)} m` : `${(s._dist / 1000).toFixed(1)} km`) : "";
+    div.innerHTML = `<span class="name"></span><span class="dist">${dist}</span>`;
+    div.querySelector(".name").textContent = (st && st.inside ? "🔊 " : "📍 ") + s.name;
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕";
+    del.addEventListener("click", () => {
+      if (confirm(`「${s.name}」を削除しますか？ / Delete this spot?`)) {
+        spots = spots.filter(x => x !== s);
+        saveSpots(); syncJsonBox(); renderSpotList(); renderSimButtons();
+      }
+    });
+    div.appendChild(del);
+    box.appendChild(div);
+  }
+}
+
+document.getElementById("btnAddHere").addEventListener("click", () => {
+  const grab = (lat, lon) => {
+    const name = prompt("スポット名 / Spot name:");
+    if (!name) return;
+    const text = prompt("解説文 (読み上げられます) / Story text:") || "";
+    spots.push({ name, lat: +lat.toFixed(6), lon: +lon.toFixed(6), text });
+    saveSpots(); syncJsonBox(); renderSpotList(); renderSimButtons();
+    log(`spot added: ${name}`);
+  };
+  if (smooth.lat !== null) { grab(smooth.lat, smooth.lon); return; }
+  navigator.geolocation.getCurrentPosition(
+    p => grab(p.coords.latitude, p.coords.longitude),
+    e => alert("位置を取得できません: " + e.message),
+    { enableHighAccuracy: true, timeout: 15000 });
+});
+
+document.getElementById("btnTestVoice").addEventListener("click", () => {
+  primeAudio();
+  speak({ name: "音声テスト", text: "こんにちは。この声でスポットの解説が流れます。", lang: "ja-JP" }, () => {});
+});
+
+/* JSON editor */
+const jsonBox = document.getElementById("spotJson");
+function syncJsonBox() {
+  jsonBox.value = JSON.stringify(
+    spots.map(({ _dist, ...s }) => s), null, 2);
+}
+document.getElementById("btnSaveJson").addEventListener("click", () => {
+  try {
+    const parsed = JSON.parse(jsonBox.value);
+    if (!Array.isArray(parsed)) throw new Error("top level must be an array");
+    for (const s of parsed) {
+      if (!s.name || typeof s.lat !== "number" || typeof s.lon !== "number")
+        throw new Error("each spot needs name, lat, lon");
+    }
+    spots = parsed;
+    saveSpots(); renderSpotList(); renderSimButtons();
+    alert("保存しました / Saved");
+  } catch (e) {
+    alert("JSONエラー: " + e.message);
+  }
+});
+document.getElementById("btnResetJson").addEventListener("click", () => {
+  if (!confirm("サンプルのスポットに戻しますか？ / Reset to sample spots?")) return;
+  spots = JSON.parse(JSON.stringify(SAMPLE_SPOTS));
+  saveSpots(); syncJsonBox(); renderSpotList(); renderSimButtons();
+});
+
+/* Log */
+const logBox = document.getElementById("log");
+function log(msg) {
+  const t = new Date().toTimeString().slice(0, 8);
+  logBox.textContent = `[${t}] ${msg}\n` + logBox.textContent.slice(0, 8000);
+}
+
+/* init */
+syncJsonBox();
+renderSpotList();
+renderSimButtons();
+log("ready");
+</script>
+</body>
+</html>
