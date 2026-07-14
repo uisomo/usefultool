@@ -65,7 +65,7 @@
     border: 1px solid #33404f; border-radius: 8px; padding: 8px;
     font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem;
   }
-  #log {
+  #log, #aiLog {
     font-family: ui-monospace, Menlo, monospace; font-size: 0.72rem;
     color: var(--muted); max-height: 140px; overflow-y: auto; white-space: pre-wrap;
   }
@@ -125,6 +125,43 @@
 
 <div class="panel">
   <details>
+    <summary>🍜 レストラン発見 / Restaurants nearby</summary>
+    <p class="hint">
+      無料のOpenStreetMapで近くの飲食店を探します。Google Places APIキー(任意)を入れると、★評価・口コミ件数・お店の説明・よくある感想つきで読み上げます。キーはこの端末にのみ保存されます。
+    </p>
+    <input type="password" id="gKey" placeholder="Google Places API key (任意/optional)"
+      style="width:100%;background:var(--panel2);color:var(--text);border:1px solid #33404f;border-radius:8px;padding:10px;font-size:0.85rem;margin-bottom:8px">
+    <div class="row">
+      <button id="btnRestaurants">🍜 近くのお店を検索 / Find restaurants</button>
+    </div>
+    <div id="restResults"></div>
+  </details>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>🎙 AIガイドと会話 / Talk to the AI guide</summary>
+    <p class="hint">
+      歩きながら音声で質問すると、AIが現在地と家族の興味に合わせて答えます。Anthropic APIキーが必要です (console.anthropic.com で取得、キーはこの端末にのみ保存)。
+    </p>
+    <input type="password" id="aiKey" placeholder="Anthropic API key (sk-ant-...)"
+      style="width:100%;background:var(--panel2);color:var(--text);border:1px solid #33404f;border-radius:8px;padding:10px;font-size:0.85rem;margin-bottom:8px">
+    <p class="hint">家族プロフィール (AIが一人ひとりの興味に合わせます):</p>
+    <textarea id="profiles" style="min-height:60px" placeholder="例: けん 10歳 株と電車が好き / みあ 7歳 動物と絵が好き"></textarea>
+    <div class="row">
+      <button id="btnMic">🎤 押して話す / Push to talk</button>
+    </div>
+    <div class="row">
+      <input type="text" id="aiText" placeholder="文字で質問 / or type a question"
+        style="flex:1;background:var(--panel2);color:var(--text);border:1px solid #33404f;border-radius:8px;padding:10px;font-size:0.9rem;min-width:0">
+      <button id="btnAiSend" style="flex:0;min-width:70px">送信</button>
+    </div>
+    <div id="aiLog" style="margin-top:8px"></div>
+  </details>
+</div>
+
+<div class="panel">
+  <details>
     <summary>⚙️ 設定 / Settings (GPS誤差対策)</summary>
     <label class="opt">言語 / Language
       <select id="optLang" style="background:var(--panel2);color:var(--text);border:1px solid #33404f;border-radius:6px;padding:6px;font-size:0.9rem">
@@ -139,6 +176,8 @@
       <input type="number" id="optDwell" value="2" min="1" max="10"></label>
     <label class="opt">再発動までの待ち時間 (分) / Cooldown (min)
       <input type="number" id="optCooldown" value="30" min="0" max="999"></label>
+    <label class="opt">次の目的地を音声で案内 / Announce next stop
+      <input type="checkbox" id="optNav" checked style="width:22px;height:22px"></label>
     <div class="hint">
       半径10m(直径20m)は空の開けた場所での実力値です。GPSの測位精度が悪い時は、その誤差の一部を差し引いて判定するため「目的地の目の前で発動」に近づけていますが、ビルの谷間では数十m手前/奥で発動することがあります。<br>
       誤発動対策: ①精度の悪い測位を捨てる ②位置を平滑化 ③入る判定と出る判定の半径を変える(ヒステリシス) ④連続して円内の時だけ発動、の4段構えです。
@@ -265,6 +304,9 @@ const OPT = {
   // exit radius = enter radius * 1.6 + 15m (hysteresis so noisy GPS doesn't flap in/out)
   exitRadius(r)  { return r * 1.6 + 15; },
 };
+const navEl = document.getElementById("optNav");
+navEl.checked = localStorage.getItem("lag_nav_v1") !== "0";
+navEl.addEventListener("change", () => localStorage.setItem("lag_nav_v1", navEl.checked ? "1" : "0"));
 
 /* ================= Geometry ================= */
 
@@ -382,8 +424,265 @@ function evaluateSpots() {
   }
   renderStatus(nearest);
   renderSpotList();
+  announceNav();
   autoWiki();
 }
+
+/* ================= Next-stop director =================
+   Follows the planner order (the spots array): announces distance and
+   compass direction to the first not-yet-played stop, once per threshold. */
+
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = Math.PI / 180;
+  const y = Math.sin((lon2 - lon1) * toRad) * Math.cos(lat2 * toRad);
+  const x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
+    Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos((lon2 - lon1) * toRad);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const DIRS_JA = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"];
+const DIRS_EN = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"];
+
+const NAV_BUCKETS = [9999, 400, 200, 100];
+const navAnnounced = new Map(); // spot name -> tightest threshold already announced
+let navSeq = 0;
+
+function announceNav() {
+  if (!document.getElementById("optNav").checked) return;
+  if (playing || queue.length) return;
+  const next = spots.find(s => {
+    const st = spotState.get(s.name);
+    return !st || st.lastPlayed === 0;
+  });
+  if (!next || next._dist == null) return;
+  if (next._dist <= (next.radius || OPT.radius) * 2) return; // about to trigger anyway
+  const target = Math.min(...NAV_BUCKETS.filter(b => next._dist <= b));
+  const last = navAnnounced.get(next.name) ?? Infinity;
+  if (target >= last) return;
+  navAnnounced.set(next.name, target);
+  const idx = Math.round(bearingDeg(smooth.lat, smooth.lon, next.lat, next.lon) / 45) % 8;
+  const d = Math.round(next._dist / 10) * 10;
+  const text = OPT.lang === "en"
+    ? `Next stop: ${next.name}. About ${d} meters to the ${DIRS_EN[idx]}.`
+    : `次の目的地は、${next.name}。${DIRS_JA[idx]}の方向へ、およそ${d}メートルです。`;
+  log(`nav: ${next.name} ${d}m ${DIRS_EN[idx]}`);
+  enqueue({ name: "__nav" + (navSeq++), text, lang: ttsLang() });
+}
+
+/* ================= Restaurants nearby =================
+   Free tier: OpenStreetMap Overpass (name + cuisine only).
+   With a Google Places API key: rating, review count, editorial summary
+   and a snippet of a recent review, all narrated.                       */
+
+const LS_GKEY = "lag_gkey_v1";
+const gKeyEl = document.getElementById("gKey");
+gKeyEl.value = localStorage.getItem(LS_GKEY) || "";
+gKeyEl.addEventListener("change", () => localStorage.setItem(LS_GKEY, gKeyEl.value.trim()));
+
+async function osmRestaurants(lat, lon, radius) {
+  const q = `[out:json][timeout:10];(node["amenity"~"restaurant|cafe|fast_food"]["name"](around:${radius},${lat},${lon}););out body 20;`;
+  const r = await fetch("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "data=" + encodeURIComponent(q)
+  });
+  const j = await r.json();
+  return (j.elements || []).map(e => ({
+    name: e.tags.name, cuisine: (e.tags.cuisine || "").replace(/[_;]/g, " "),
+    dist: haversine(lat, lon, e.lat, e.lon)
+  })).sort((a, b) => a.dist - b.dist);
+}
+
+async function googleRestaurants(lat, lon, radius, key) {
+  const r = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask": "places.displayName,places.location,places.rating,places.userRatingCount,places.editorialSummary,places.reviews"
+    },
+    body: JSON.stringify({
+      includedTypes: ["restaurant"], maxResultCount: 10,
+      languageCode: OPT.lang === "en" ? "en" : "ja",
+      locationRestriction: { circle: { center: { latitude: lat, longitude: lon }, radius } }
+    })
+  });
+  if (!r.ok) throw new Error("Google Places " + r.status + ": " + (await r.text()).slice(0, 200));
+  const j = await r.json();
+  return (j.places || []).map(p => ({
+    name: p.displayName && p.displayName.text,
+    rating: p.rating, count: p.userRatingCount,
+    summary: p.editorialSummary && p.editorialSummary.text,
+    review: p.reviews && p.reviews[0] && p.reviews[0].text && p.reviews[0].text.text,
+    dist: p.location ? haversine(lat, lon, p.location.latitude, p.location.longitude) : null
+  })).filter(p => p.name).sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9));
+}
+
+function restaurantBlurb(p) {
+  const en = OPT.lang === "en";
+  const parts = [];
+  if (p.dist != null) parts.push(en ? `${Math.round(p.dist)} meters from here.` : `ここから${Math.round(p.dist)}メートル。`);
+  if (p.cuisine) parts.push(en ? `Cuisine: ${p.cuisine}.` : `ジャンルは${p.cuisine}。`);
+  if (p.rating) parts.push(en
+    ? `Rated ${p.rating} out of 5 stars from ${p.count || 0} reviews.`
+    : `評価は5つ星中${p.rating}、口コミは${p.count || 0}件です。`);
+  if (p.summary) parts.push(p.summary + (en ? "" : "。"));
+  if (p.review) {
+    const snip = p.review.replace(/\s+/g, " ").slice(0, 140);
+    parts.push(en ? `One recent review says: ${snip}` : `最近の口コミ。${snip}`);
+  }
+  return parts.join(en ? " " : "");
+}
+
+document.getElementById("btnRestaurants").addEventListener("click", async () => {
+  primeAudio();
+  const box = document.getElementById("restResults");
+  const run = async (lat, lon) => {
+    box.innerHTML = "<p class='hint'>検索中… / Searching…</p>";
+    const key = gKeyEl.value.trim();
+    try {
+      const list = key ? await googleRestaurants(lat, lon, 300, key)
+                       : await osmRestaurants(lat, lon, 300);
+      box.innerHTML = "";
+      if (!list.length) { box.innerHTML = "<p class='hint'>近くにお店が見つかりません / Nothing nearby.</p>"; return; }
+      for (const p of list) {
+        const div = document.createElement("div");
+        div.className = "spot";
+        const stars = p.rating ? ` ★${p.rating} (${p.count || 0})` : "";
+        div.innerHTML = `<span class="name"></span><span class="dist">${p.dist != null ? p.dist.toFixed(0) + " m" : ""}</span>`;
+        div.querySelector(".name").textContent = `🍜 ${p.name}${stars}`;
+        const play = document.createElement("button");
+        play.textContent = "▶"; play.style.padding = "4px 10px";
+        play.addEventListener("click", () => {
+          primeAudio();
+          enqueue({ name: p.name, text: restaurantBlurb(p), lang: ttsLang() });
+        });
+        div.appendChild(play);
+        box.appendChild(div);
+      }
+      log(`restaurants: ${list.length} found (${key ? "Google Places" : "OpenStreetMap"})`);
+    } catch (e) {
+      box.innerHTML = "<p class='hint'>検索に失敗しました / Search failed: " + e.message + "</p>";
+      log("restaurant error: " + e.message);
+    }
+  };
+  if (smooth.lat !== null) { run(smooth.lat, smooth.lon); return; }
+  navigator.geolocation.getCurrentPosition(
+    p => run(p.coords.latitude, p.coords.longitude),
+    e => { box.innerHTML = "<p class='hint'>位置を取得できません: " + e.message + "</p>"; },
+    { enableHighAccuracy: true, timeout: 15000 });
+});
+
+/* ================= Conversational AI guide =================
+   Push-to-talk (Safari's built-in speech recognition) -> Claude API with
+   current location + nearby spots + family profiles -> spoken answer.
+   The API key stays in this device's localStorage only.                 */
+
+const LS_AIKEY = "lag_aikey_v1", LS_PROFILES = "lag_profiles_v1";
+const aiKeyEl = document.getElementById("aiKey");
+const profilesEl = document.getElementById("profiles");
+aiKeyEl.value = localStorage.getItem(LS_AIKEY) || "";
+profilesEl.value = localStorage.getItem(LS_PROFILES) || "";
+aiKeyEl.addEventListener("change", () => localStorage.setItem(LS_AIKEY, aiKeyEl.value.trim()));
+profilesEl.addEventListener("change", () => localStorage.setItem(LS_PROFILES, profilesEl.value));
+
+const aiHistory = [];
+const aiLogBox = document.getElementById("aiLog");
+function aiLog(who, text) {
+  aiLogBox.textContent = `${who}: ${text}\n\n` + aiLogBox.textContent.slice(0, 6000);
+}
+
+function aiSystemPrompt() {
+  const en = OPT.lang === "en";
+  const near = spots.filter(s => s._dist != null).sort((a, b) => a._dist - b._dist).slice(0, 5)
+    .map(s => `${s.name} (${Math.round(s._dist)}m)`).join(", ");
+  return (en
+    ? "You are a warm, fun walking-tour guide for a family with kids. Answer in English."
+    : "あなたは家族連れ向けの、明るく楽しい街歩きツアーガイドです。日本語で答えてください。") +
+    ` Current position: ${smooth.lat !== null ? smooth.lat.toFixed(5) + ", " + smooth.lon.toFixed(5) : "unknown"}.` +
+    (near ? ` Nearby tour spots: ${near}.` : "") +
+    (profilesEl.value.trim() ? ` Family members and their interests: ${profilesEl.value.trim()}. Tailor answers to whoever the question fits, and connect topics to their interests (e.g. stocks, science, school subjects).` : "") +
+    " Keep answers to 2-4 spoken sentences, vivid and kid-friendly. Plain text only, no markdown, no lists.";
+}
+
+async function askAI(question) {
+  const key = aiKeyEl.value.trim();
+  if (!key) { alert("Anthropic APIキーを入力してください / Enter your Anthropic API key first."); return; }
+  aiLog("🙋", question);
+  aiHistory.push({ role: "user", content: question });
+  while (aiHistory.length > 12) aiHistory.shift();
+  if (aiHistory[0].role !== "user") aiHistory.shift();
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 400,
+        system: aiSystemPrompt(),
+        messages: aiHistory
+      })
+    });
+    if (!r.ok) throw new Error("API " + r.status + ": " + (await r.text()).slice(0, 200));
+    const j = await r.json();
+    const reply = (j.content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    if (!reply) throw new Error("empty reply");
+    aiHistory.push({ role: "assistant", content: reply });
+    aiLog("🤖", reply);
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(reply);
+    u.lang = ttsLang();
+    speechSynthesis.speak(u);
+  } catch (e) {
+    aiHistory.pop();
+    aiLog("⚠️", e.message);
+    log("AI error: " + e.message);
+  }
+}
+
+document.getElementById("btnAiSend").addEventListener("click", () => {
+  const t = document.getElementById("aiText").value.trim();
+  if (!t) return;
+  document.getElementById("aiText").value = "";
+  primeAudio();
+  askAI(t);
+});
+document.getElementById("aiText").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("btnAiSend").click();
+});
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, listening = false;
+document.getElementById("btnMic").addEventListener("click", () => {
+  primeAudio();
+  if (!SR) {
+    alert("このブラウザは音声認識に未対応です。下の入力欄から文字で質問してください。/ Speech recognition unsupported here — type your question below.");
+    return;
+  }
+  const btn = document.getElementById("btnMic");
+  if (listening) { recog.stop(); return; }
+  recog = new SR();
+  recog.lang = ttsLang();
+  recog.interimResults = false;
+  recog.maxAlternatives = 1;
+  listening = true;
+  btn.textContent = "🔴 聞き取り中… / Listening…";
+  speechSynthesis.cancel(); // don't transcribe our own voice
+  recog.onresult = e => {
+    const t = e.results[0][0].transcript;
+    if (t) askAI(t);
+  };
+  recog.onerror = e => { aiLog("⚠️", "認識エラー / recognition error: " + e.error); };
+  recog.onend = () => {
+    listening = false;
+    btn.textContent = "🎤 押して話す / Push to talk";
+  };
+  recog.start();
+});
 
 /* ================= Audio (queue: TTS or audio file) ================= */
 
@@ -440,7 +739,8 @@ function buildScript(spot) {
 function speak(spot, done) {
   if (!("speechSynthesis" in window)) { log("no speechSynthesis"); done(); return; }
   const sep = OPT.lang === "en" ? ". " : "。";
-  const u = new SpeechSynthesisUtterance(`${spot.name}${sep}${buildScript(spot)}`);
+  const title = spot.name && !spot.name.startsWith("__") ? `${spot.name}${sep}` : "";
+  const u = new SpeechSynthesisUtterance(`${title}${buildScript(spot)}`);
   u.lang = spot.lang || ttsLang();
   u.rate = 1.0;
   u.onend = done;
@@ -508,6 +808,7 @@ function start() {
   setNowPlaying("案内中… スポットに近づくと解説が流れます。");
   smooth.reset();
   spotState.clear();
+  navAnnounced.clear();
   acquireWakeLock();
   if (!simMode) {
     watchId = navigator.geolocation.watchPosition(onFix, onGpsError, {

@@ -74,6 +74,32 @@ Runs in iPhone Safari — no App Store, no native app needed.
 - `textEn` `personEn` `businessEn` `kidsNoteEn` を書いておくと、言語設定 English のとき英語で読み上げ
 - `audioUrl` があれば録音ファイルを再生、なければ合成音声
 
+## 🍜 レストラン発見 / Restaurants nearby
+
+「🍜 レストラン発見」パネルで近くの飲食店を探して読み上げます。2段構えです:
+
+- **無料 (キーなし)**: OpenStreetMap (Overpass API) — 店名・ジャンル・距離が分かります。★評価や口コミはありません
+- **Google Places APIキーを入れると**: ★評価・口コミ件数・お店の説明文・**最近の口コミの抜粋**まで読み上げます。「何が美味しいか・みんなの感想」はこちらでないと取れません
+
+Google Places API キーの取り方: [Google Cloud Console](https://console.cloud.google.com/) でプロジェクト作成 → 「Places API (New)」を有効化 → APIキー作成。従量課金ですが月間無料枠があり、家族利用の規模ならまず無料枠内です。キーは端末のlocalStorageにのみ保存され、Google以外には送信されません。(Googleマップ画面のスクレイピングは規約違反のため不可 — APIが唯一の正規ルートです)
+
+## 🎙 AIガイドと会話 / Conversational AI guide
+
+**「歩きながらAIと音声で会話する」は可能です。実装済みです。**仕組み:
+
+1. 🎤ボタン → iPhoneの音声認識(Safari内蔵)で質問を文字化
+2. 質問 + **現在地 + 近くのスポット + 家族プロフィール** をClaude APIに送信
+3. 返答を合成音声で読み上げ (会話の文脈は継続)
+
+- **家族プロフィール**欄に「けん 10歳 株と電車が好き」のように書くと、AIがその子の興味(株・理科・学校の勉強)に引き寄せて答えます
+- [console.anthropic.com](https://console.anthropic.com/) のAPIキーが必要 (使った分だけ課金。応答はHaikuモデルで1回1円未満程度)
+- 音声認識が使えない環境では文字入力でも質問できます
+- 制約: 完全な「割り込み自由な電話型会話」(OpenAI Realtime / Gemini Live のような常時双方向音声) はブラウザ単体では難しく、プッシュトゥトーク方式にしています。それでも体験としては「質問→即答」で十分会話になります
+
+## 🧭 次の目的地アナウンス / Next-stop director
+
+案内中、プランナーの順番に従って**まだ聞いていない次のスポット**への方向と距離を節目 (400m/200m/100m) で自動アナウンスします:「次の目的地は三越本店。北東の方向へ、およそ200メートルです」。設定でOFFにできます。
+
 ## ライブ情報のデータソース比較 / Where can live info come from?
 
 | ソース | 内容 | 費用 | ブラウザから直接? |
