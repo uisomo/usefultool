@@ -80,7 +80,10 @@
 </head>
 <body>
 
-<h1>🎧 まち歩き音声ガイド <span style="color:var(--muted);font-size:0.8rem">Location Audio Story</span></h1>
+<h1 style="display:flex;justify-content:space-between;align-items:center">
+  <span>🎧 まち歩き音声ガイド <span style="color:var(--muted);font-size:0.8rem">Location Audio Story</span></span>
+  <a href="planner.html" style="color:var(--accent);font-size:0.85rem;text-decoration:none;white-space:nowrap">📋 プランナー</a>
+</h1>
 
 <div class="panel">
   <button id="btnStart" class="btn-main">▶ ガイド開始 / Start Guide</button>
@@ -107,17 +110,38 @@
 
 <div class="panel">
   <details>
+    <summary>🔎 ライブ発見 / Live discovery (Wikipedia)</summary>
+    <p class="hint">
+      事前登録なしで、いま居る場所の周囲にあるWikipedia記事(史跡・建物・企業本社など)を探して読み上げます。言語設定がEnglishなら英語版Wikipediaを検索し英語で読み上げます。通信が必要です。
+    </p>
+    <label class="opt">歩きながら自動発見 / Auto-discover while walking
+      <input type="checkbox" id="chkAutoWiki" style="width:22px;height:22px"></label>
+    <div class="row">
+      <button id="btnWikiSearch">🔎 近くを検索 / Search nearby</button>
+    </div>
+    <div id="wikiResults"></div>
+  </details>
+</div>
+
+<div class="panel">
+  <details>
     <summary>⚙️ 設定 / Settings (GPS誤差対策)</summary>
+    <label class="opt">言語 / Language
+      <select id="optLang" style="background:var(--panel2);color:var(--text);border:1px solid #33404f;border-radius:6px;padding:6px;font-size:0.9rem">
+        <option value="ja">日本語</option>
+        <option value="en">English</option>
+      </select></label>
     <label class="opt">発動半径 (m) / Trigger radius
-      <input type="number" id="optRadius" value="35" min="10" max="500"></label>
+      <input type="number" id="optRadius" value="10" min="5" max="500"></label>
     <label class="opt">精度しきい値 (m) / Reject fixes worse than
       <input type="number" id="optMaxAcc" value="50" min="10" max="200"></label>
     <label class="opt">確定に必要な連続測位数 / Fixes to confirm entry
-      <input type="number" id="optDwell" value="3" min="1" max="10"></label>
+      <input type="number" id="optDwell" value="2" min="1" max="10"></label>
     <label class="opt">再発動までの待ち時間 (分) / Cooldown (min)
       <input type="number" id="optCooldown" value="30" min="0" max="999"></label>
     <div class="hint">
-      ビル街でGPSが乱れても誤発動しないよう、①精度の悪い測位を捨てる、②位置を平滑化する、③円に「入る判定」と「出る判定」の半径を変える(ヒステリシス)、④連続して円内にいた時だけ発動する、の4段構えです。
+      半径10m(直径20m)は空の開けた場所での実力値です。GPSの測位精度が悪い時は、その誤差の一部を差し引いて判定するため「目的地の目の前で発動」に近づけていますが、ビルの谷間では数十m手前/奥で発動することがあります。<br>
+      誤発動対策: ①精度の悪い測位を捨てる ②位置を平滑化 ③入る判定と出る判定の半径を変える(ヒステリシス) ④連続して円内の時だけ発動、の4段構えです。
     </div>
   </details>
 </div>
@@ -125,7 +149,10 @@
 <div class="panel">
   <details>
     <summary>✏️ スポット編集 (JSON) / Edit spots</summary>
-    <p class="hint">name(名前), lat, lon, radius(m, 省略時は設定値), text(読み上げ文), audioUrl(音声ファイルURL, 省略時はtextを合成音声で読み上げ), lang(例 "ja-JP"), alt(高度m・省略可), altTol(高度許容差m, 既定20)。altを入れると高度が大きく違う場所(展望台と地上など)で誤発動しません。同じ場所で「＋現在地に追加」すると測定高度が自動記録されます。</p>
+    <p class="hint">
+      必須: name, lat, lon。任意: radius(m), text(解説文), textEn(英語版), category("history"|"person"|"business"|"dining"|"science"), person/personEn(ゆかりの人物), business/businessEn(ゆかりの企業), ticker(証券コード), kidsNote/kidsNoteEn(子ども向け豆知識・学校の勉強とのつながり), audioUrl(録音ファイルURL), lang, alt(高度m), altTol(高度許容差m, 既定20)。<br>
+      person/business/ticker/kidsNote は解説文のあとに自動で読み上げに追加されます。altは同じ場所で「＋現在地に追加」すると自動記録されます。
+    </p>
     <textarea id="spotJson" spellcheck="false"></textarea>
     <div class="row">
       <button id="btnSaveJson">保存 / Save</button>
@@ -163,13 +190,40 @@
 /* ================= Spot data ================= */
 
 const SAMPLE_SPOTS = [
-  { name: "日本橋 (麒麟像)", lat: 35.684056, lon: 139.774501,
-    text: "ここは日本橋。江戸時代、五街道の起点と定められた場所です。橋の中央に立つ翼のある麒麟の像は、ここから日本中へ飛び立つという意味が込められています。" },
-  { name: "東京駅 丸の内駅舎", lat: 35.681236, lon: 139.767125,
-    text: "東京駅丸の内駅舎は1914年、辰野金吾の設計で完成しました。関東大震災にも耐えた赤レンガの駅舎は、戦災で焼失した屋根が2012年に創建当時の姿へ復原されました。" },
-  { name: "和田倉噴水公園", lat: 35.683049, lon: 139.760232,
-    text: "和田倉噴水公園は、昭和36年に当時の皇太子明仁親王の御成婚を記念して造られました。江戸城の和田倉門があった場所で、堀と石垣が今も残っています。" }
+  { name: "日本橋 (麒麟像)", lat: 35.684056, lon: 139.774501, category: "history",
+    text: "ここは日本橋。江戸時代、五街道の起点と定められた場所です。橋の中央に立つ翼のある麒麟の像は、ここから日本中へ飛び立つという意味が込められています。",
+    textEn: "This is Nihonbashi bridge. In the Edo period it was the official starting point of the five great highways of Japan. The winged kirin statues at the center symbolize taking flight from here to the whole country.",
+    person: "徳川家康。江戸幕府を開き、この橋を全国の道の起点と定めました",
+    personEn: "Tokugawa Ieyasu, the shogun who founded Edo and made this bridge kilometer zero of Japan",
+    kidsNote: "今も橋の中央に「日本国道路元標」があり、東京から何キロ、という距離はここから測ります。社会科の地図の勉強とつながっています。",
+    kidsNoteEn: "The kilometer-zero marker is still in the middle of the bridge — every 'distance from Tokyo' sign in Japan is measured from this exact spot." },
+  { name: "日本橋三越本店", lat: 35.686550, lon: 139.773750, category: "business",
+    text: "日本橋三越本店。前身の越後屋呉服店は1673年創業。「現金掛け値なし」という定価販売を世界に先駆けて始め、1904年に日本初の百貨店になりました。",
+    textEn: "Mitsukoshi Nihonbashi. Its predecessor, the Echigoya kimono shop founded in 1673, pioneered fixed-price cash sales, and in 1904 became Japan's first department store.",
+    person: "三井高利。三井グループの祖で、越後屋の創業者です",
+    personEn: "Mitsui Takatoshi, founder of Echigoya and ancestor of the Mitsui group",
+    business: "三越伊勢丹ホールディングス", businessEn: "Isetan Mitsukoshi Holdings", ticker: "3099",
+    kidsNote: "定価で売るのは今では当たり前ですが、江戸時代は値段交渉が普通でした。商売のルールを発明で変えた、ビジネスの歴史の教科書みたいな場所です。",
+    kidsNoteEn: "Fixed prices feel obvious today, but in the Edo period haggling was the norm — this shop literally invented a new rule of business." },
+  { name: "東京駅 丸の内駅舎", lat: 35.681236, lon: 139.767125, category: "history",
+    text: "東京駅丸の内駅舎は1914年、辰野金吾の設計で完成しました。関東大震災にも耐えた赤レンガの駅舎は、戦災で焼失した屋根が2012年に創建当時の姿へ復原されました。",
+    textEn: "Tokyo Station's Marunouchi building was completed in 1914 by architect Tatsuno Kingo. The red-brick station survived the Great Kanto Earthquake, and its war-damaged domes were restored to the original design in 2012.",
+    person: "辰野金吾。日本銀行本店も設計した明治建築界の第一人者です",
+    personEn: "Tatsuno Kingo, the leading Meiji-era architect who also designed the Bank of Japan",
+    business: "JR東日本", businessEn: "East Japan Railway (JR East)", ticker: "9020",
+    kidsNote: "2012年の復原工事では、駅舎全体を免震ゴムの上に載せ替えました。地震のゆれを受け流す理科の実験のような大工事です。",
+    kidsNoteEn: "In the 2012 restoration the whole building was placed on seismic-isolation rubber bearings — a giant physics experiment in absorbing earthquakes." },
+  { name: "榮太樓總本鋪 日本橋本店", lat: 35.683500, lon: 139.774200, category: "dining",
+    text: "榮太樓總本鋪は1818年創業の和菓子の老舗。名物の榮太樓飴や金鍔は、江戸の屋台菓子から始まりました。",
+    textEn: "Eitaro Sohonpo is a Japanese confectionery founded in 1818. Its famous candies and kintsuba sweets began as Edo street-stall snacks.",
+    kidsNote: "200年続くお店には「のれん」という信用の看板があります。長く続く会社ほど信用が財産になる、という経済の話とつながります。",
+    kidsNoteEn: "A shop lasting 200 years shows how trust itself becomes a company's most valuable asset." },
+  { name: "和田倉噴水公園", lat: 35.683049, lon: 139.760232, category: "history",
+    text: "和田倉噴水公園は、昭和36年に当時の皇太子明仁親王の御成婚を記念して造られました。江戸城の和田倉門があった場所で、堀と石垣が今も残っています。",
+    textEn: "Wadakura Fountain Park was built in 1961 to commemorate the wedding of then Crown Prince Akihito. It stands where Edo Castle's Wadakura gate once was, with the moat and stone walls still intact." }
 ];
+
+const CAT_EMOJI = { history: "🏯", person: "👤", business: "🏢", dining: "🍜", science: "🔬" };
 
 const LS_SPOTS = "lag_spots_v1";
 const LS_OPTS  = "lag_opts_v1";
@@ -188,6 +242,7 @@ function saveSpots() { localStorage.setItem(LS_SPOTS, JSON.stringify(spots)); }
 /* ================= Options ================= */
 
 const optEls = {
+  lang:     document.getElementById("optLang"),
   radius:   document.getElementById("optRadius"),
   maxAcc:   document.getElementById("optMaxAcc"),
   dwell:    document.getElementById("optDwell"),
@@ -199,10 +254,11 @@ try {
 } catch (e) {}
 for (const k in optEls) optEls[k].addEventListener("change", () => {
   localStorage.setItem(LS_OPTS, JSON.stringify(Object.fromEntries(
-    Object.entries(optEls).map(([k, el]) => [k, +el.value]))));
+    Object.entries(optEls).map(([k, el]) => [k, el.tagName === "SELECT" ? el.value : +el.value]))));
 });
 const OPT = {
-  get radius()   { return +optEls.radius.value || 35; },
+  get lang()     { return optEls.lang.value === "en" ? "en" : "ja"; },
+  get radius()   { return +optEls.radius.value || 10; },
   get maxAcc()   { return +optEls.maxAcc.value || 50; },
   get dwell()    { return +optEls.dwell.value || 3; },
   get cooldown() { return (+optEls.cooldown.value || 0) * 60 * 1000; },
@@ -326,6 +382,7 @@ function evaluateSpots() {
   }
   renderStatus(nearest);
   renderSpotList();
+  autoWiki();
 }
 
 /* ================= Audio (queue: TTS or audio file) ================= */
@@ -357,10 +414,34 @@ function drain() {
   }
 }
 
+function ttsLang() { return OPT.lang === "en" ? "en-US" : "ja-JP"; }
+
+/* Compose the narration: main story, then connected person, business
+   (with stock code — for the kid who's into stocks), then the school/science
+   tie-in. Falls back to Japanese text when no English version exists. */
+function buildScript(spot) {
+  const en = OPT.lang === "en";
+  const parts = [];
+  parts.push(en ? (spot.textEn || spot.text || "") : (spot.text || ""));
+  if (spot.person || spot.personEn)
+    parts.push(en ? `A person connected to this place: ${spot.personEn || spot.person}.`
+                  : `ゆかりの人物。${spot.person || spot.personEn}。`);
+  if (spot.business || spot.businessEn) {
+    const t = spot.ticker ? (en ? ` Its stock code is ${spot.ticker}.` : `証券コードは${spot.ticker}です。`) : "";
+    parts.push(en ? `The business connected to this place: ${spot.businessEn || spot.business}.${t}`
+                  : `ゆかりの企業。${spot.business || spot.businessEn}。${t}`);
+  }
+  if (spot.kidsNote || spot.kidsNoteEn)
+    parts.push(en ? `Fun fact: ${spot.kidsNoteEn || spot.kidsNote}`
+                  : `豆知識。${spot.kidsNote || spot.kidsNoteEn}`);
+  return parts.filter(Boolean).join(en ? " " : "");
+}
+
 function speak(spot, done) {
   if (!("speechSynthesis" in window)) { log("no speechSynthesis"); done(); return; }
-  const u = new SpeechSynthesisUtterance(`${spot.name}。${spot.text || ""}`);
-  u.lang = spot.lang || "ja-JP";
+  const sep = OPT.lang === "en" ? ". " : "。";
+  const u = new SpeechSynthesisUtterance(`${spot.name}${sep}${buildScript(spot)}`);
+  u.lang = spot.lang || ttsLang();
   u.rate = 1.0;
   u.onend = done;
   u.onerror = done;
@@ -521,7 +602,8 @@ function renderSpotList() {
     div.className = "spot" + (st && st.inside ? " inside" : "");
     const dist = s._dist != null ? (s._dist < 1000 ? `${s._dist.toFixed(0)} m` : `${(s._dist / 1000).toFixed(1)} km`) : "";
     div.innerHTML = `<span class="name"></span><span class="dist">${dist}</span>`;
-    div.querySelector(".name").textContent = (st && st.inside ? "🔊 " : "📍 ") + s.name;
+    div.querySelector(".name").textContent =
+      (st && st.inside ? "🔊 " : (CAT_EMOJI[s.category] || "📍") + " ") + s.name;
     const del = document.createElement("button");
     del.className = "del"; del.textContent = "✕";
     del.addEventListener("click", () => {
@@ -558,8 +640,94 @@ document.getElementById("btnAddHere").addEventListener("click", () => {
 
 document.getElementById("btnTestVoice").addEventListener("click", () => {
   primeAudio();
-  speak({ name: "音声テスト", text: "こんにちは。この声でスポットの解説が流れます。", lang: "ja-JP" }, () => {});
+  speak(OPT.lang === "en"
+    ? { name: "Voice test", text: "Hello! Stories will be narrated in this voice." }
+    : { name: "音声テスト", text: "こんにちは。この声でスポットの解説が流れます。" }, () => {});
 });
+
+/* ================= Live discovery via Wikipedia GeoSearch =================
+   Free, no API key, CORS-enabled (origin=*). Finds geotagged articles near
+   the current position and reads their intro aloud in the chosen language. */
+
+const heardWiki = new Set();   // pageids already narrated this session
+let lastAutoWiki = 0;
+
+function wikiHost() { return OPT.lang === "en" ? "en.wikipedia.org" : "ja.wikipedia.org"; }
+
+async function wikiNearby(lat, lon, radius, limit) {
+  const url = `https://${wikiHost()}/w/api.php?action=query&list=geosearch` +
+    `&gscoord=${lat.toFixed(6)}%7C${lon.toFixed(6)}&gsradius=${radius}&gslimit=${limit}` +
+    `&format=json&origin=*`;
+  const j = await (await fetch(url)).json();
+  return (j.query && j.query.geosearch) || [];
+}
+
+async function wikiExtract(pageid) {
+  const url = `https://${wikiHost()}/w/api.php?action=query&prop=extracts` +
+    `&exintro=1&explaintext=1&exsentences=4&pageids=${pageid}&format=json&origin=*`;
+  const j = await (await fetch(url)).json();
+  const p = j.query && j.query.pages && j.query.pages[pageid];
+  return (p && p.extract) || "";
+}
+
+async function playWikiArticle(a) {
+  heardWiki.add(a.pageid);
+  try {
+    const text = await wikiExtract(a.pageid);
+    if (!text) { log(`wiki: no extract for ${a.title}`); return; }
+    enqueue({ name: a.title, text, lang: ttsLang() });
+  } catch (e) { log("wiki extract error: " + e.message); }
+}
+
+document.getElementById("btnWikiSearch").addEventListener("click", async () => {
+  primeAudio();
+  const box = document.getElementById("wikiResults");
+  const run = async (lat, lon) => {
+    box.innerHTML = "<p class='hint'>検索中… / Searching…</p>";
+    try {
+      const res = await wikiNearby(lat, lon, 500, 10);
+      box.innerHTML = "";
+      if (!res.length) { box.innerHTML = "<p class='hint'>近くに記事が見つかりません / Nothing nearby.</p>"; return; }
+      for (const a of res) {
+        const div = document.createElement("div");
+        div.className = "spot";
+        div.innerHTML = `<span class="name"></span><span class="dist">${a.dist.toFixed(0)} m</span>`;
+        div.querySelector(".name").textContent = "📖 " + a.title;
+        const play = document.createElement("button");
+        play.textContent = "▶"; play.style.padding = "4px 10px";
+        play.addEventListener("click", () => { primeAudio(); playWikiArticle(a); });
+        div.appendChild(play);
+        box.appendChild(div);
+      }
+      log(`wiki search: ${res.length} article(s) nearby`);
+    } catch (e) {
+      box.innerHTML = "<p class='hint'>検索に失敗しました(通信環境を確認) / Search failed.</p>";
+      log("wiki search error: " + e.message);
+    }
+  };
+  if (smooth.lat !== null) { run(smooth.lat, smooth.lon); return; }
+  navigator.geolocation.getCurrentPosition(
+    p => run(p.coords.latitude, p.coords.longitude),
+    e => { box.innerHTML = "<p class='hint'>位置を取得できません: " + e.message + "</p>"; },
+    { enableHighAccuracy: true, timeout: 15000 });
+});
+
+/* Auto-discover: while guiding, every 45s look for an unheard article within
+   120m and narrate it. Piggybacks on the smoothed position. */
+async function autoWiki() {
+  if (!document.getElementById("chkAutoWiki").checked) return;
+  if (!running || smooth.lat === null) return;
+  const now = Date.now();
+  if (now - lastAutoWiki < 45000) return;
+  lastAutoWiki = now;
+  try {
+    const res = await wikiNearby(smooth.lat, smooth.lon, 120, 5);
+    const fresh = res.find(a => !heardWiki.has(a.pageid));
+    if (!fresh) return;
+    log(`wiki auto: ${fresh.title} (${fresh.dist.toFixed(0)}m)`);
+    playWikiArticle(fresh);
+  } catch (e) { log("wiki auto error: " + e.message); }
+}
 
 /* JSON editor */
 const jsonBox = document.getElementById("spotJson");

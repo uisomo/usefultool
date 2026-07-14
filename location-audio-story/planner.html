@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>📋 ツアープランナー / Tour Planner</title>
+<style>
+  :root {
+    --bg: #101418; --panel: #1a2028; --panel2: #222a35;
+    --text: #e8edf2; --muted: #8b98a5; --accent: #4fc3f7;
+    --good: #66bb6a; --bad: #ef5350;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: var(--bg); color: var(--text);
+    padding: 12px; padding-bottom: 40px; max-width: 640px; margin: 0 auto;
+  }
+  h1 { font-size: 1.15rem; margin: 8px 0 12px; display: flex; justify-content: space-between; align-items: center; }
+  h1 a { color: var(--accent); font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+  .panel { background: var(--panel); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  button {
+    font-size: 0.9rem; border: none; border-radius: 8px;
+    padding: 8px 12px; cursor: pointer; color: #fff; background: var(--panel2);
+  }
+  button:active { opacity: 0.7; }
+  .btn-main { width: 100%; font-size: 1.05rem; font-weight: 700; background: var(--accent); color: #06232f; padding: 14px; border-radius: 10px; }
+  .btn-main.playing { background: var(--bad); color: #fff; }
+  .stop {
+    border-bottom: 1px solid #2b3542; padding: 10px 4px;
+  }
+  .stop:last-child { border-bottom: none; }
+  .stop .head { display: flex; align-items: center; gap: 8px; }
+  .stop .num {
+    background: var(--panel2); color: var(--accent); border-radius: 50%;
+    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; flex-shrink: 0;
+  }
+  .stop .name { flex: 1; font-size: 0.95rem; font-weight: 600; }
+  .stop .leg { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+  .stop .body { margin: 8px 0 0 34px; font-size: 0.85rem; color: var(--muted); line-height: 1.6; }
+  .stop .tags { margin: 4px 0 0 34px; font-size: 0.75rem; color: var(--accent); }
+  .stop .btns { display: flex; gap: 6px; margin: 8px 0 0 34px; flex-wrap: wrap; }
+  .stop .btns button { font-size: 0.8rem; padding: 6px 10px; }
+  .stop .btns a { font-size: 0.8rem; padding: 6px 10px; background: var(--panel2); color: var(--accent); border-radius: 8px; text-decoration: none; }
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  #summary { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<h1>📋 ツアープランナー <a href="index.html">🎧 ガイドへ戻る / Back to guide</a></h1>
+
+<div class="panel">
+  <div id="summary"></div>
+  <button id="btnBriefAll" class="btn-main">🔊 全行程を予習 / Brief the whole tour</button>
+  <p class="hint">
+    出発前にコースの解説をまとめて聞けます。順番は ↑↓ で入れ替え、地図リンクで場所を確認できます。スポットの追加・編集はガイド画面で。
+  </p>
+</div>
+
+<div class="panel" id="list"></div>
+
+<script>
+"use strict";
+
+const LS_SPOTS = "lag_spots_v1";
+const LS_OPTS  = "lag_opts_v1";
+
+let spots = [];
+try { spots = JSON.parse(localStorage.getItem(LS_SPOTS)) || []; } catch (e) {}
+
+let LANG = "ja";
+try { const o = JSON.parse(localStorage.getItem(LS_OPTS)); if (o && o.lang === "en") LANG = "en"; } catch (e) {}
+
+const CAT_EMOJI = { history: "🏯", person: "👤", business: "🏢", dining: "🍜", science: "🔬" };
+const CAT_LABEL = LANG === "en"
+  ? { history: "History", person: "Person", business: "Business", dining: "Dining", science: "Science" }
+  : { history: "歴史・文化", person: "人物", business: "企業・ビジネス", dining: "グルメ", science: "科学" };
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/* Same narration composition as the guide page */
+function buildScript(s) {
+  const en = LANG === "en";
+  const parts = [];
+  parts.push(en ? (s.textEn || s.text || "") : (s.text || ""));
+  if (s.person || s.personEn)
+    parts.push(en ? `A person connected to this place: ${s.personEn || s.person}.`
+                  : `ゆかりの人物。${s.person || s.personEn}。`);
+  if (s.business || s.businessEn) {
+    const t = s.ticker ? (en ? ` Its stock code is ${s.ticker}.` : `証券コードは${s.ticker}です。`) : "";
+    parts.push(en ? `The business connected to this place: ${s.businessEn || s.business}.${t}`
+                  : `ゆかりの企業。${s.business || s.businessEn}。${t}`);
+  }
+  if (s.kidsNote || s.kidsNoteEn)
+    parts.push(en ? `Fun fact: ${s.kidsNoteEn || s.kidsNote}`
+                  : `豆知識。${s.kidsNote || s.kidsNoteEn}`);
+  return parts.filter(Boolean).join(en ? " " : "");
+}
+
+let briefing = false;
+function speakText(text, done) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = LANG === "en" ? "en-US" : "ja-JP";
+  u.onend = done; u.onerror = done;
+  speechSynthesis.speak(u);
+}
+function stopSpeech() {
+  briefing = false;
+  speechSynthesis.cancel();
+  const b = document.getElementById("btnBriefAll");
+  b.classList.remove("playing");
+  b.textContent = "🔊 全行程を予習 / Brief the whole tour";
+}
+
+document.getElementById("btnBriefAll").addEventListener("click", () => {
+  if (briefing) { stopSpeech(); return; }
+  if (!spots.length) return;
+  briefing = true;
+  const b = document.getElementById("btnBriefAll");
+  b.classList.add("playing");
+  b.textContent = "■ 停止 / Stop";
+  speechSynthesis.cancel();
+  const sep = LANG === "en" ? ". " : "。";
+  const intro = LANG === "en"
+    ? `Today's tour has ${spots.length} stops. `
+    : `今日のコースは全部で${spots.length}か所です。`;
+  let i = 0;
+  const next = () => {
+    if (!briefing || i >= spots.length) { stopSpeech(); return; }
+    const s = spots[i]; i++;
+    const head = LANG === "en" ? `Stop ${i}: ${s.name}` : `${i}番目。${s.name}`;
+    speakText(`${head}${sep}${buildScript(s)}`, next);
+  };
+  speakText(intro, next);
+});
+
+function save() { localStorage.setItem(LS_SPOTS, JSON.stringify(spots)); }
+
+function render() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  if (!spots.length) {
+    list.innerHTML = "<p class='hint'>スポットがありません。ガイド画面で追加してください。/ No spots yet — add them on the guide page.</p>";
+    document.getElementById("summary").textContent = "";
+    return;
+  }
+  let total = 0;
+  spots.forEach((s, i) => {
+    if (i > 0) total += haversine(spots[i-1].lat, spots[i-1].lon, s.lat, s.lon);
+    const div = document.createElement("div");
+    div.className = "stop";
+
+    const head = document.createElement("div");
+    head.className = "head";
+    const leg = i > 0
+      ? (() => { const d = haversine(spots[i-1].lat, spots[i-1].lon, s.lat, s.lon);
+                 return d < 1000 ? `↓ ${d.toFixed(0)} m` : `↓ ${(d/1000).toFixed(1)} km`; })()
+      : (LANG === "en" ? "start" : "スタート");
+    head.innerHTML = `<span class="num">${i+1}</span><span class="name"></span><span class="leg">${leg}</span>`;
+    head.querySelector(".name").textContent = `${CAT_EMOJI[s.category] || "📍"} ${s.name}`;
+    div.appendChild(head);
+
+    const tags = [];
+    if (s.category) tags.push(CAT_LABEL[s.category] || s.category);
+    if (s.person || s.personEn) tags.push("👤 " + (LANG === "en" ? (s.personEn || s.person) : (s.person || s.personEn)).split("。")[0].split(",")[0]);
+    if (s.business || s.businessEn) tags.push("🏢 " + (LANG === "en" ? (s.businessEn || s.business) : (s.business || s.businessEn)) + (s.ticker ? ` (${s.ticker})` : ""));
+    if (tags.length) {
+      const t = document.createElement("div");
+      t.className = "tags"; t.textContent = tags.join("　");
+      div.appendChild(t);
+    }
+
+    const body = document.createElement("div");
+    body.className = "body";
+    body.textContent = LANG === "en" ? (s.textEn || s.text || "") : (s.text || "");
+    div.appendChild(body);
+
+    const btns = document.createElement("div");
+    btns.className = "btns";
+
+    const play = document.createElement("button");
+    play.textContent = "▶ " + (LANG === "en" ? "Listen" : "聴く");
+    play.addEventListener("click", () => {
+      stopSpeech();
+      speechSynthesis.cancel();
+      speakText(`${s.name}${LANG === "en" ? ". " : "。"}${buildScript(s)}`, () => {});
+    });
+    btns.appendChild(play);
+
+    const map = document.createElement("a");
+    map.href = `https://maps.apple.com/?ll=${s.lat},${s.lon}&q=${encodeURIComponent(s.name)}`;
+    map.target = "_blank"; map.rel = "noopener";
+    map.textContent = "🗺 " + (LANG === "en" ? "Map" : "地図");
+    btns.appendChild(map);
+
+    const up = document.createElement("button");
+    up.textContent = "↑"; up.disabled = i === 0;
+    up.addEventListener("click", () => {
+      [spots[i-1], spots[i]] = [spots[i], spots[i-1]];
+      save(); render();
+    });
+    btns.appendChild(up);
+
+    const down = document.createElement("button");
+    down.textContent = "↓"; down.disabled = i === spots.length - 1;
+    down.addEventListener("click", () => {
+      [spots[i], spots[i+1]] = [spots[i+1], spots[i]];
+      save(); render();
+    });
+    btns.appendChild(down);
+
+    div.appendChild(btns);
+    list.appendChild(div);
+  });
+  const totalTxt = total < 1000 ? `${total.toFixed(0)} m` : `${(total/1000).toFixed(1)} km`;
+  document.getElementById("summary").textContent = LANG === "en"
+    ? `${spots.length} stops · walking distance about ${totalTxt} (straight-line)`
+    : `全${spots.length}か所 · 歩行距離 約${totalTxt} (直線距離)`;
+}
+
+render();
+</script>
+</body>
+</html>
