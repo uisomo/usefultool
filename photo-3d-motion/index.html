@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Photo → 3D Motion Graphics</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎞️</text></svg>" />
+<style>
+  :root {
+    --bg: #0e1014;
+    --panel: #171a21;
+    --panel2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e8eaf0;
+    --muted: #9aa3b2;
+    --accent: #5b8cff;
+    --accent2: #8f6bff;
+    --danger: #ff5b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    display: grid;
+    grid-template-rows: 48px 1fr auto;
+    grid-template-columns: 300px 1fr;
+    grid-template-areas: "top top" "side stage" "side timeline";
+    overflow: hidden;
+  }
+  /* ---- Top bar ---- */
+  #topbar {
+    grid-area: top; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  #topbar .title { font-weight: 700; margin-right: 8px; white-space: nowrap; }
+  #topbar .title span { color: var(--accent); }
+  .spacer { flex: 1; }
+  button, select, input[type="text"] {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input[type="range"] { accent-color: var(--accent); width: 100%; }
+  input[type="color"] { border: 1px solid var(--border); background: var(--panel2); border-radius: 6px; width: 34px; height: 26px; padding: 2px; cursor: pointer; }
+  label.small { color: var(--muted); font-size: 11px; display: block; margin: 8px 0 2px; }
+  /* ---- Side panel ---- */
+  #side {
+    grid-area: side; background: var(--panel); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .section h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .row > * { flex: 1; }
+  .row > .fixed { flex: 0 0 auto; }
+  #layerList { display: flex; flex-direction: column; gap: 4px; }
+  .layer-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  }
+  .layer-item.selected { border-color: var(--accent); background: #232a3d; }
+  .layer-item .lname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layer-item .ltype { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  .layer-item .del { color: var(--danger); background: none; border: none; padding: 0 2px; font-size: 14px; }
+  #props { display: none; }
+  #props.visible { display: block; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  /* ---- Stage ---- */
+  #stage { grid-area: stage; position: relative; overflow: hidden; background: #05070a; }
+  #stage canvas { display: block; }
+  #dropHint {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); gap: 10px; pointer-events: none; text-align: center;
+  }
+  #dropHint .big { font-size: 20px; color: var(--text); }
+  #status {
+    position: absolute; left: 12px; bottom: 12px; background: rgba(14,16,20,.85); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; max-width: 70%; display: none;
+  }
+  #status.visible { display: block; }
+  #status .bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  #status .bar > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
+  /* ---- Timeline ---- */
+  #timeline {
+    grid-area: timeline; background: var(--panel); border-top: 1px solid var(--border);
+    padding: 10px 12px; display: flex; align-items: center; gap: 12px;
+  }
+  #timeline .t-group { display: flex; align-items: center; gap: 6px; }
+  #scrub { flex: 1; }
+  #timeDisplay { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 76px; text-align: center; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="title">Photo <span>→</span> 3D Motion</div>
+  <button id="btnLoadPhoto" class="primary">Load Photo</button>
+  <button id="btnGenDepth" disabled>Generate Depth (AI)</button>
+  <button id="btnLoadDepth" disabled>Upload Depth Map</button>
+  <button id="btnShowDepth" disabled>View Depth</button>
+  <div class="spacer"></div>
+  <button id="btnSave" disabled>Save Project</button>
+  <button id="btnOpen">Open Project</button>
+  <button id="btnExport" class="primary" disabled>⬤ Export Video</button>
+  <input type="file" id="filePhoto" accept="image/*" class="hidden" />
+  <input type="file" id="fileDepth" accept="image/*" class="hidden" />
+  <input type="file" id="fileImageLayer" accept="image/*" class="hidden" />
+  <input type="file" id="fileProject" accept=".json" class="hidden" />
+</div>
+
+<div id="side">
+  <div class="section">
+    <h3>Add Layer</h3>
+    <div class="row">
+      <button id="btnAddText" disabled>+ Text</button>
+      <button id="btnAddImage" disabled>+ Image</button>
+      <button id="btnAddShape" disabled>+ Shape</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Layers</h3>
+    <div id="layerList"></div>
+  </div>
+
+  <div class="section" id="props">
+    <h3>Selected Layer</h3>
+    <div id="propText">
+      <label class="small">Text</label>
+      <input type="text" id="pText" style="width:100%" />
+      <div class="grid2">
+        <div><label class="small">Font</label>
+          <select id="pFont" style="width:100%">
+            <option value="sans-serif">Sans</option>
+            <option value="'Arial Black', sans-serif">Bold Sans</option>
+            <option value="Georgia, serif">Serif</option>
+            <option value="Impact, sans-serif">Impact</option>
+            <option value="'Courier New', monospace">Mono</option>
+            <option value="cursive">Cursive</option>
+          </select></div>
+        <div><label class="small">Weight</label>
+          <select id="pWeight" style="width:100%">
+            <option value="400">Regular</option>
+            <option value="700" selected>Bold</option>
+            <option value="900">Black</option>
+          </select></div>
+      </div>
+    </div>
+    <div id="propShape">
+      <label class="small">Shape</label>
+      <select id="pShape" style="width:100%">
+        <option value="rect">Rounded Rectangle</option>
+        <option value="circle">Circle</option>
+        <option value="arrow">Arrow →</option>
+        <option value="line">Line</option>
+        <option value="star">Star</option>
+      </select>
+    </div>
+    <div class="grid2">
+      <div><label class="small">Color</label><input type="color" id="pColor" value="#ffffff" /></div>
+      <div><label class="small">Outline</label><input type="color" id="pOutline" value="#000000" /></div>
+    </div>
+    <label class="small">Scale <span id="pScaleV"></span></label>
+    <input type="range" id="pScale" min="0.05" max="2.5" step="0.01" />
+    <label class="small">Depth (Z) — smaller = deeper into scene <span id="pZV"></span></label>
+    <input type="range" id="pZ" min="-0.5" max="1.6" step="0.01" />
+    <div class="row" style="margin-top:6px">
+      <button id="btnSnap">Snap onto surface</button>
+      <button id="btnBehind">Push behind subject</button>
+    </div>
+    <label class="small">Rotation <span id="pRotV"></span></label>
+    <input type="range" id="pRot" min="-180" max="180" step="1" value="0" />
+    <label class="small">Opacity <span id="pOpacityV"></span></label>
+    <input type="range" id="pOpacity" min="0" max="1" step="0.01" value="1" />
+    <div class="grid2">
+      <div><label class="small">Entrance</label>
+        <select id="pAnim" style="width:100%">
+          <option value="none">None</option>
+          <option value="fade">Fade in</option>
+          <option value="rise">Rise up</option>
+          <option value="pop">Pop</option>
+          <option value="slide">Slide from left</option>
+        </select></div>
+      <div><label class="small">Appear at (s)</label>
+        <input type="text" id="pAppear" style="width:100%" value="0" /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnDup">Duplicate</button>
+      <button id="btnDelete" class="danger">Delete</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Scene</h3>
+    <label class="small">3D Depth Strength <span id="depthScaleV"></span></label>
+    <input type="range" id="depthScale" min="0" max="2.5" step="0.01" value="1.0" />
+    <label class="small">Depth Smoothing <span id="depthBlurV"></span></label>
+    <input type="range" id="depthBlur" min="0" max="8" step="1" value="2" />
+    <label class="small">Background</label>
+    <div class="row"><input type="color" id="bgColor" value="#05070a" class="fixed" />
+      <span style="color:var(--muted);font-size:11px">Drag layers directly in the viewport. Scroll/drag empty space to orbit the preview camera.</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Camera Move</h3>
+    <select id="camPreset" style="width:100%">
+      <option value="orbit" selected>Orbit (parallax sweep)</option>
+      <option value="dolly">Dolly In</option>
+      <option value="kenburns">Ken Burns 3D</option>
+      <option value="vertigo">Vertigo (dolly zoom)</option>
+      <option value="floaty">Floaty (handheld)</option>
+      <option value="still">Still</option>
+    </select>
+    <label class="small">Motion Amount <span id="camAmountV"></span></label>
+    <input type="range" id="camAmount" min="0" max="1" step="0.01" value="0.55" />
+    <label class="small">Duration (seconds) <span id="durationV"></span></label>
+    <input type="range" id="duration" min="2" max="20" step="0.5" value="6" />
+  </div>
+</div>
+
+<div id="stage">
+  <div id="dropHint">
+    <div class="big">Drop a photo here (or click “Load Photo”)</div>
+    <div>Then hit <b>Generate Depth (AI)</b> — the model runs locally in your browser.<br/>
+    Add text, images and shapes into the 3D scene, pick a camera move, and export a video.</div>
+  </div>
+  <div id="status"><span id="statusText"></span><div class="bar"><div id="statusBar"></div></div></div>
+</div>
+
+<div id="timeline">
+  <div class="t-group">
+    <button id="btnPlay" disabled>▶ Play</button>
+  </div>
+  <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" />
+  <div id="timeDisplay">0.0 / 6.0s</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/"
+  }
+}
+</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
